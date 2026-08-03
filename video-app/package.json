@@ -1,0 +1,24 @@
+{
+  "name": "video-app-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ],
+  "scripts": {
+    "dev:gateway": "nx serve gateway-service",
+    "dev:room": "nx serve room-service",
+    "dev:signaling": "nx serve signaling-service",
+    "dev:media": "nx serve media-service",
+    "dev:client": "nx serve client",
+    "dev": "nx run-many --target=serve --parallel",
+    "build": "nx run-many --target=build",
+    "lint": "nx run-many --target=lint",
+    "test": "nx run-many --target=test"
+  },
+  "devDependencies": {
+    "nx": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}

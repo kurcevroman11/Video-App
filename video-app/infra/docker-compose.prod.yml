@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  gateway-service:
+    build: ./apps/gateway-service
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - ROOM_SERVICE_URL=room-service:3001
+      - REDIS_URL=redis://redis:6379
+
+  room-service:
+    build: ./apps/room-service
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+
+  signaling-service:
+    build: ./apps/signaling-service
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+
+  media-service:
+    build: ./apps/media-service
+    ports:
+      - "3003:3003"
+
+  redis:
+    image: redis:7-alpine

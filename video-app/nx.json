@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "sharedGlobals": [],
+    "production": ["default", "!{projectRoot}/**/*.spec.ts"]
+  },
+  "plugins": [
+    "@nx/js"
+  ],
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
+    "serve": {
+      "cache": true
+    }
+  },
+  "projects": {
+    "gateway-service": {"root": "apps/gateway-service", "targets": {}},
+    "room-service": {"root": "apps/room-service", "targets": {}},
+    "signaling-service": {"root": "apps/signaling-service", "targets": {}},
+    "media-service": {"root": "apps/media-service", "targets": {}},
+    "client": {"root": "apps/client", "targets": {}},
+    "contracts": {"root": "libs/contracts", "targets": {}},
+    "common": {"root": "libs/common", "targets": {}},
+    "core": {"root": "libs/core", "targets": {}}
+  }
+}

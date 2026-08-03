@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/room-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomType {
+  PUBLIC
+  PRIVATE
+}
+
+enum RoomStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum MemberRole {
+  OWNER
+  MODERATOR
+  PARTICIPANT
+}
+
+enum MemberStatus {
+  JOINED
+  LEFT
+  KICKED
+}
+
+model Room {
+  id              String       @id @default(uuid())
+  name            String
+  type            RoomType
+  status          RoomStatus   @default(ACTIVE)
+  ownerId         String
+  maxParticipants Int?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  members         RoomMember[]
+  invites         Invite[]
+
+  @@map("rooms")
+}
+
+model RoomMember {
+  id        String       @id @default(uuid())
+  roomId    String
+  userId    String
+  role      MemberRole   @default(PARTICIPANT)
+  status    MemberStatus @default(JOINED)
+  joinedAt  DateTime     @default(now())
+  leftAt    DateTime?
+
+  room      Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@map("room_members")
+}
+
+model Invite {
+  id         String    @id @default(uuid())
+  roomId     String
+  code       String    @unique
+  createdBy  String
+  expiresAt  DateTime?
+  maxUses    Int?
+  usesCount  Int       @default(0)
+
+  room       Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("invites")
+}

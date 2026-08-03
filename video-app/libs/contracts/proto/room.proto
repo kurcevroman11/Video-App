@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package room;
+
+service RoomService {
+  rpc CreateRoom(CreateRoomRequest) returns (Room);
+  rpc GetRoom(GetRoomRequest) returns (Room);
+  rpc DeleteRoom(DeleteRoomRequest) returns (Empty);
+
+  rpc JoinRoom(JoinRoomRequest) returns (RoomMember);
+  rpc LeaveRoom(LeaveRoomRequest) returns (Empty);
+  rpc KickParticipant(KickParticipantRequest) returns (Empty);
+  rpc ChangeRole(ChangeRoleRequest) returns (RoomMember);
+  rpc TransferOwnership(TransferOwnershipRequest) returns (Empty);
+
+  rpc ListParticipants(ListParticipantsRequest) returns (ParticipantsList);
+  rpc CreateInvite(CreateInviteRequest) returns (Invite);
+
+  rpc CheckAccess(CheckAccessRequest) returns (AccessResult);
+}
+
+message Room {
+  string id = 1;
+  string name = 2;
+  string owner_id = 3;
+  string type = 4;
+  string status = 5;
+  int32 max_participants = 6;
+  int64 created_at = 7;
+  int64 updated_at = 8;
+}
+
+message RoomMember {
+  string id = 1;
+  string room_id = 2;
+  string user_id = 3;
+  string role = 4;
+  string status = 5;
+  int64 joined_at = 6;
+  int64 left_at = 7;
+}
+
+message Invite {
+  string id = 1;
+  string room_id = 2;
+  string code = 3;
+  string created_by = 4;
+  int64 expires_at = 5;
+  int32 max_uses = 6;
+  int32 uses_count = 7;
+}
+
+message CreateRoomRequest {
+  string name = 1;
+  string owner_id = 2;
+  string type = 3;
+  int32 max_participants = 4;
+}
+
+message GetRoomRequest {
+  string id = 1;
+}
+
+message DeleteRoomRequest {
+  string id = 1;
+}
+
+message JoinRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string invite_code = 3;
+}
+
+message LeaveRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message KickParticipantRequest {
+  string room_id = 1;
+  string target_user_id = 2;
+  string requester_id = 3;
+}
+
+message ChangeRoleRequest {
+  string room_id = 1;
+  string target_user_id = 2;
+  string new_role = 3;
+  string requester_id = 4;
+}
+
+message TransferOwnershipRequest {
+  string room_id = 1;
+  string new_owner_id = 2;
+  string current_owner_id = 3;
+}
+
+message ListParticipantsRequest {
+  string room_id = 1;
+}
+
+message CreateInviteRequest {
+  string room_id = 1;
+  string created_by = 2;
+  int32 max_uses = 3;
+  int64 expires_at = 4;
+}
+
+message CheckAccessRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message ParticipantsList {
+  repeated RoomMember participants = 1;
+}
+
+message AccessResult {
+  bool allowed = 1;
+  string role = 2;
+}
+
+message Empty {}

@@ -1,0 +1,13 @@
+{
+  "name": "@video-app/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "dependencies": {
+    "google-protobuf": "^3.21.0",
+    "grpc-web": "^1.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

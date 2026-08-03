@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package participant;
+
+service ParticipantService {
+  rpc JoinRoom(JoinRoomRequest) returns (ParticipantResponse);
+  rpc LeaveRoom(LeaveRoomRequest) returns (Empty);
+  rpc GetParticipants(GetParticipantsRequest) returns (ParticipantListResponse);
+  rpc UpdateParticipant(UpdateParticipantRequest) returns (ParticipantResponse);
+}
+
+message Participant {
+  string id = 1;
+  string room_id = 2;
+  string user_id = 3;
+  string role = 4; // host, co-host, participant
+  bool is_audio_enabled = 5;
+  bool is_video_enabled = 6;
+  bool is_screen_sharing = 7;
+  int64 joined_at = 8;
+}
+
+message JoinRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string role = 3;
+}
+
+message LeaveRoomRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message GetParticipantsRequest {
+  string room_id = 1;
+}
+
+message UpdateParticipantRequest {
+  string id = 1;
+  bool is_audio_enabled = 2;
+  bool is_video_enabled = 3;
+  bool is_screen_sharing = 4;
+}
+
+message ParticipantResponse {
+  Participant participant = 1;
+}
+
+message ParticipantListResponse {
+  repeated Participant participants = 1;
+}
+
+message Empty {}

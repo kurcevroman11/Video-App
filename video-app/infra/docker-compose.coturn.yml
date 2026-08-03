@@ -1,0 +1,15 @@
+version: '3.8'
+
+# coturn — отдельная инфраструктурная единица (Этап 4).
+# Разворачивается на отдельной VM/инстансе, НЕ в общем compose со всеми сервисами:
+#   - network_mode: host (релейный диапазон ~16000 портов нельзя пробрасывать через userland-proxy);
+#   - в host-сети контейнер использует сеть хоста, поэтому конфликты портов с остальными
+#     сервисами исключаются только выносом на отдельный хост.
+
+services:
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    restart: unless-stopped
