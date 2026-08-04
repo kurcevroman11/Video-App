@@ -1,18 +1,22 @@
-FROM node:20-alpine AS builder
+# Build context = repository root (see infra/docker-compose.prod.yml)
+FROM node:20-bookworm-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ openssl \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package*.json ./
-COPY ../../libs/contracts ../../libs/contracts
-COPY ../../libs/common ../../libs/common
-COPY ../../libs/core ../../libs/core
-RUN npm install
-COPY . .
-RUN npx prisma generate
-RUN npm run build
+COPY package.json package-lock.json ./
+COPY apps apps
+COPY libs libs
+COPY nx.json tsconfig.json ./
+# Install only room-service workspace deps; skip media-service/mediasoup.
+RUN npm ci --workspace @video-app/room-service
+WORKDIR /app/apps/room-service
+RUN npx prisma generate && npm run build
 
-FROM node:20-alpine
+FROM node:20-bookworm-slim
+ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY package*.json ./
-RUN npm install --production
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app ./
+WORKDIR /app/apps/room-service
 CMD ["node", "dist/main"]

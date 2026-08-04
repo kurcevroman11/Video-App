@@ -1,33 +1,89 @@
-version: '3.8'
+name: videoapp-prod
 
 services:
-  gateway-service:
-    build: ./apps/gateway-service
+  # Entry point: nginx serves the built client + reverse-proxies API/WS
+  nginx:
+    build:
+      context: ..
+      dockerfile: apps/client/Dockerfile
+      args:
+        VITE_API_URL: https://${DOMAIN}
+        VITE_SIGNALING_URL: https://${DOMAIN}
     ports:
-      - "80:3000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certs:/etc/letsencrypt
+    depends_on:
+      - gateway-service
+      - signaling-service
+    restart: unless-stopped
+
+  gateway-service:
+    build:
+      context: ..
+      dockerfile: apps/gateway-service/Dockerfile
     environment:
-      - NODE_ENV=production
-      - ROOM_SERVICE_URL=room-service:3001
-      - REDIS_URL=redis://redis:6379
+      NODE_ENV: production
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: videoapp_gateway
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN}
+      ROOM_SERVICE_HOST: room-service
+      ROOM_SERVICE_PORT: "50051"
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_URL: ${TURN_URL}
+      TURN_TLS_URL: ${TURN_TLS_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
+    depends_on:
+      - postgres
+      - room-service
+    restart: unless-stopped
 
   room-service:
-    build: ./apps/room-service
+    build:
+      context: ..
+      dockerfile: apps/room-service/Dockerfile
     environment:
-      - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
+      NODE_ENV: production
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: videoapp_room
+    depends_on:
+      - postgres
+    restart: unless-stopped
 
   signaling-service:
-    build: ./apps/signaling-service
-    ports:
-      - "3002:3002"
+    build:
+      context: ..
+      dockerfile: apps/signaling-service/Dockerfile
     environment:
-      - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
+      NODE_ENV: production
+      PORT: "3002"
+      JWT_SECRET: ${JWT_SECRET}
+      ROOM_SERVICE_HOST: room-service
+      ROOM_SERVICE_PORT: "50051"
+    depends_on:
+      - room-service
+    restart: unless-stopped
 
-  media-service:
-    build: ./apps/media-service
-    ports:
-      - "3003:3003"
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
+volumes:
+  postgres_data:
+  certs:

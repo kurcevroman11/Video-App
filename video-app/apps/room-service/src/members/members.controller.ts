@@ -9,6 +9,7 @@ import {
   TransferOwnershipDto,
   ListParticipantsDto,
 } from './dto/member.dto';
+import { mapRoomMember } from '../common/proto.mappers';
 
 @Controller()
 export class MembersController {
@@ -18,7 +19,7 @@ export class MembersController {
   async joinRoom(data: any) {
     await this.membersService.joinRoom(data.room_id, data.user_id, data.invite_code);
     const membership = await this.membersService.getMembership(data.room_id, data.user_id);
-    return membership;
+    return mapRoomMember(membership);
   }
 
   @GrpcMethod('RoomService', 'LeaveRoom')
@@ -37,7 +38,7 @@ export class MembersController {
   async changeRole(data: any) {
     await this.membersService.changeRole(data.room_id, data.target_user_id, data.new_role, data.requester_id);
     const membership = await this.membersService.getMembership(data.room_id, data.target_user_id);
-    return membership;
+    return mapRoomMember(membership);
   }
 
   @GrpcMethod('RoomService', 'TransferOwnership')
@@ -49,7 +50,7 @@ export class MembersController {
   @GrpcMethod('RoomService', 'ListParticipants')
   async listParticipants(data: any) {
     const participants = await this.membersService.listParticipants(data.room_id);
-    return { participants };
+    return { participants: participants.map(mapRoomMember) };
   }
 
   @GrpcMethod('RoomService', 'CheckAccess')

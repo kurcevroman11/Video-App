@@ -7,14 +7,12 @@ COPY package.json package-lock.json ./
 COPY apps apps
 COPY libs libs
 COPY nx.json tsconfig.json ./
-# Install only signaling-service workspace deps; skip media-service/mediasoup.
-RUN npm ci --workspace @video-app/signaling-service
-WORKDIR /app/apps/signaling-service
+# Install only client workspace deps; skip media-service/mediasoup.
+RUN npm ci --workspace @video-app/client
+WORKDIR /app/apps/client
 RUN npm run build
 
-FROM node:20-bookworm-slim
-ENV NODE_ENV=production
-WORKDIR /app
-COPY --from=builder /app ./
-WORKDIR /app/apps/signaling-service
-CMD ["node", "dist/main"]
+FROM nginx:alpine
+COPY apps/client/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/apps/client/dist /usr/share/nginx/html
+EXPOSE 80 443

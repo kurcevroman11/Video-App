@@ -204,47 +204,99 @@ npm run dev:client    # 5173
 
 ## 8. Деплой
 
-### 8.1 Запуск прод-стек
+### 8.1 Схема (один VPS)
 
-```bash
-docker compose -f infra/docker-compose.prod.yml up -d --build
+```
+                      ┌──────────────────────────── nginx (client) ────────────────────────────┐
+                      │  serve dist/ (SPA) │ /auth /rooms /turn-credentials → gateway          │
+ https://rkurce1c.beget.tech │  /signaling (WS) → signaling-service                                   │
+                      └───────────────────────────────────────────────────────────────────────┘
+                                             │  (internal docker network)
+              ┌──────────────┬───────────────┼────────────────┬───────────────┐
+       gateway-service room-service signaling-service media-service      postgres
+          (REST:3000)  (gRPC:50051)   (WS:3002)     (raw:3003)           (5432)
+             │              │              │
+             └── gRPC ──────┘              └──── gRPC ──┘
 ```
 
-Ожидает в окружении `DATABASE_URL`, `JWT_SECRET`, `TURN_SHARED_SECRET` и т.д.
+- Наружу открыты только `80`/`443` (nginx). Все сервисы живут во внутренней
+  сети compose и наружу порты не публикуют.
+- coturn (TURN/STUN) — на этом же VPS, но в **отдельном** стеке с
+  `network_mode: host` (UDP-порты нельзя пробрасывать через nginx).
+- Клиент собирается с `VITE_API_URL=https://rkurce1c.beget.tech`
+  и `VITE_SIGNALING_URL=https://rkurce1c.beget.tech` (единый origin — API и WS идут
+  через nginx, CORS в рантайме не нужен).
 
-### 8.2 Требование к coturn в проде
+### 8.2 Первичный деплой
 
-- Отдельный инстанс/VM, `network_mode: host`.
-- Открыты порты: 3478/udp, 5349 (TLS), relay 49152-65535/udp.
-- `denied-peer-ip` для приватных диапазонов — обязательно.
-- `external-ip=<публичный>`.
+1. Скопировать и заполнить `.env` (рядом с compose-файлом или в окружении):
 
-Поднять только coturn:
+```bash
+cp infra/.env.prod.example infra/.env
+# заполнить: DOMAIN, POSTGRES_PASSWORD, JWT_SECRET, TURN_SHARED_SECRET, TURN_URL
+```
+
+2. Прогнать миграции БД:
+
+```bash
+# локально (или на сервере из apps/gateway-service, apps/room-service):
+cd apps/gateway-service && npx prisma db push --accept-data-loss
+cd apps/room-service && npx prisma db push --accept-data-loss
+```
+
+3. Поднять стек:
+
+```bash
+docker compose --env-file infra/.env -f infra/docker-compose.prod.yml up -d --build
+```
+
+4. Выпустить TLS-сертификат (Let's Encrypt). nginx монтирует volume `certs`
+   в `/etc/letsencrypt`, nginx.conf ждёт `/etc/letsencrypt/live/videoapp/` —
+   создайте симлинк на реальную папку домена. Один из способов (на хосте,
+   после того как nginx поднялся на 80):
+
+```bash
+# 4.1. Выпустить сертификат на хост (нужен пакет certbot):
+sudo apt-get install -y certbot
+sudo certbot certonly --standalone -d rkurce1c.beget.tech
+#      (или: --webroot -w <путь к dist>, если не хотите останавливать nginx)
+
+# 4.2. Скопировать сертификаты в volume certs:
+docker volume ls                                  # найти имя (videoapp-prod_certs)
+docker run --rm -v videoapp-prod_certs:/etc/letsencrypt -v /etc/letsencrypt:/src:ro \
+  alpine sh -c 'cp -r /src/live /src/renewal /src/archive /etc/letsencrypt/'
+
+# 4.3. Симлинк live/videoapp -> live/rkurce1c.beget.tech
+docker run --rm -v videoapp-prod_certs:/etc/letsencrypt alpine \
+  sh -c 'ln -sfn rkurce1c.beget.tech /etc/letsencrypt/live/videoapp'
+
+# 4.4. Перезапустить nginx
+docker compose --env-file infra/.env -f infra/docker-compose.prod.yml restart nginx
+```
+
+> Пока сертификата нет, nginx падает на 443 (нет `fullchain.pem`) — это
+> нормально. Сначала поднимите стек на 80, выпустите сертификат и перезапустите.
+
+### 8.3 coturn (обязательно, если звонки не peer-to-peer)
+
+- Отдельный compose-файл, `network_mode: host`.
+- Открыть на файрволе: 3478/udp (и tcp), 5349/tcp (TLS, опц.), relay
+  49152-65535/udp. Закрыть всё остальное.
+- В `infra/coturn/turnserver.conf`:
+  - `static-auth-secret=` = `TURN_SHARED_SECRET` из `.env` (должны совпадать);
+  - `external-ip=<публичный-IP>`.
+- В `infra/.env`: `TURN_URL=<публичный-IP>:3478`, `TURN_TLS_URL=<публичный-IP>:5349`.
 
 ```bash
 docker compose -f infra/docker-compose.coturn.yml up -d
 ```
 
-### 8.3 Публичный доступ (Dev Tunnels / локальный провайдер)
+### 8.4 Проверка
 
-Для «+» кнопки доступа клиента с других устройств:
-
-```bash
-devtunnels create videoapp-client --port 5173 --access-token public
-devtunnels create videoapp-gateway --port 3000 --access-token public
-devtunnels create videoapp-signaling --port 3002 --access-token public
-```
-
-и затем указать публичные URL в `client/.env`:
-
-```
-VITE_API_URL=https://<hash>-3000.euw.devtunnels.ms
-VITE_SIGNALING_URL=https://<hash>-3002.euw.devtunnels.ms
-```
-
-- Туннели должны быть со `--access-token public` (иначе другие устройства
-  получат 302 на логин Dev Tunnels).
-- `gateway-service` уже разрешает CORS для `*.devtunnels.ms`.
+- `curl -I https://app.example.com` → 200;
+- логин, звонок двух устройств → статус `CONNECTED`;
+- `chrome://webrtc-internals` → активная `candidate-pair` типа `relay`
+  при `iceTransportPolicy: 'relay'`.
 
 ---
 

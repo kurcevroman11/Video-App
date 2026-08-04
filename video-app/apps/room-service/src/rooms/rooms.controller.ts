@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { GrpcMethod } from '@nestjs/microservices';
 import { RoomsService } from './rooms.service';
+import { mapRoom } from '../common/proto.mappers';
 
 @Controller()
 export class RoomsController {
@@ -8,20 +9,19 @@ export class RoomsController {
 
   @GrpcMethod('RoomService', 'CreateRoom')
   async createRoom(data: any) {
-    console.log('Room-service received CreateRoom:', JSON.stringify(data));
     const room = await this.roomsService.createRoom({
       name: data.name,
       ownerId: data.owner_id,
       type: data.type,
       maxParticipants: data.max_participants,
     });
-    return room;
+    return mapRoom(room);
   }
 
   @GrpcMethod('RoomService', 'GetRoom')
   async getRoom(data: any) {
     const room = await this.roomsService.getRoom(data.id);
-    return room;
+    return mapRoom(room);
   }
 
   @GrpcMethod('RoomService', 'DeleteRoom')
