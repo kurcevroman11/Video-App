@@ -1,6 +1,6 @@
-# Local test override: no TLS, expose nginx on 8080, use TLS-less config
+# Local test override: no TLS, expose client (nginx) on 8080, use TLS-less config
 services:
-  nginx:
+  client:
     build:
       context: ..
       dockerfile: apps/client/Dockerfile

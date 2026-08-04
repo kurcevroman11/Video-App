@@ -1,19 +1,16 @@
 name: videoapp-prod
 
 services:
-  # Entry point: nginx serves the built client + reverse-proxies API/WS
-  nginx:
+  # Entry point: client container (nginx) serves the built SPA + reverse-proxies API/WS
+  client:
     build:
       context: ..
       dockerfile: apps/client/Dockerfile
       args:
-        VITE_API_URL: https://${DOMAIN}
-        VITE_SIGNALING_URL: https://${DOMAIN}
+        VITE_API_URL: ${DOMAIN_PROTOCOL}://${DOMAIN}
+        VITE_SIGNALING_URL: ${DOMAIN_PROTOCOL}://${DOMAIN}
     ports:
       - "80:80"
-      - "443:443"
-    volumes:
-      - certs:/etc/letsencrypt
     depends_on:
       - gateway-service
       - signaling-service
@@ -38,7 +35,7 @@ services:
       TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
       TURN_URL: ${TURN_URL}
       TURN_TLS_URL: ${TURN_TLS_URL}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
+      CORS_ORIGINS: ${CORS_ORIGINS:-${DOMAIN_PROTOCOL}://${DOMAIN}}
     depends_on:
       - postgres
       - room-service
@@ -86,4 +83,3 @@ services:
 
 volumes:
   postgres_data:
-  certs:
