@@ -3,8 +3,8 @@ import { VideoCallRoom } from './components/VideoCallRoom';
 import { JoinScreen } from './components/JoinScreen';
 import { LogOutIcon, UserIcon, AlertIcon } from './components/icons';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || 'http://localhost:3002';
+const API_URL = import.meta.env.VITE_API_URL || '';
+const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || '';
 
 interface User {
   id: string;

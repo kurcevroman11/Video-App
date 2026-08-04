@@ -6,9 +6,6 @@ services:
     build:
       context: ..
       dockerfile: apps/client/Dockerfile
-      args:
-        VITE_API_URL: ${DOMAIN_PROTOCOL}://${DOMAIN}
-        VITE_SIGNALING_URL: ${DOMAIN_PROTOCOL}://${DOMAIN}
     ports:
       - "80:80"
     depends_on:
