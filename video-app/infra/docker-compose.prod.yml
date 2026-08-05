@@ -8,6 +8,10 @@ services:
       dockerfile: apps/client/Dockerfile
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
     depends_on:
       - gateway-service
       - signaling-service
@@ -78,5 +82,17 @@ services:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
 
+  # One-shot: issue/renew Let's Encrypt cert. Run on demand:
+  #   docker compose --profile certs run --rm certbot
+  certbot:
+    image: certbot/certbot
+    profiles: ["certs"]
+    volumes:
+      - certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    command: certonly --webroot -w /var/www/certbot -d ${DOMAIN} -d www.${DOMAIN} --agree-tos --email ${LETSENCRYPT_EMAIL} --no-eff-email
+
 volumes:
   postgres_data:
+  certs:
+  certbot_www:
