@@ -88,6 +88,7 @@ services:
   coturn:
     image: coturn/coturn:latest
     network_mode: host
+    user: "0:0"
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - certs:/etc/letsencrypt:ro
