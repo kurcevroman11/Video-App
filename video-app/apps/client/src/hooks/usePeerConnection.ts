@@ -3,6 +3,7 @@ import { Socket } from 'socket.io-client';
 
 export interface UsePeerConnectionReturn {
   pcRef: React.RefObject<RTCPeerConnection | null>;
+  pc: RTCPeerConnection | null;
   connectionState: RTCPeerConnectionState;
   remoteStream: MediaStream | null;
   addIceCandidate: (candidate: RTCIceCandidateInit) => Promise<void>;
@@ -20,6 +21,7 @@ export function usePeerConnection(
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
+  const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new');
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
@@ -28,6 +30,9 @@ export function usePeerConnection(
 
     const pc = new RTCPeerConnection({ iceServers });
     pcRef.current = pc;
+    setPc(pc);
+    setConnectionState('new');
+    setRemoteStream(null);
 
     pc.onconnectionstatechange = () => {
       setConnectionState(pc.connectionState);
@@ -49,6 +54,7 @@ export function usePeerConnection(
     return () => {
       pcRef.current?.close();
       pcRef.current = null;
+      setPc(null);
       pendingCandidatesRef.current = [];
     };
   }, [socket, remoteUserId, iceServers]);
@@ -102,6 +108,7 @@ export function usePeerConnection(
 
   return {
     pcRef,
+    pc,
     connectionState,
     remoteStream,
     addIceCandidate,

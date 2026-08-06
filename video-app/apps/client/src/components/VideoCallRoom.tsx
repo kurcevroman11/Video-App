@@ -186,29 +186,30 @@ export function VideoCallRoom({
 
   // настройка единого драйвера переговоров
   useEffect(() => {
-    const pc = peerConnection.pcRef.current;
+    const pc = peerConnection.pc;
     if (!pc) return;
     pc.onnegotiationneeded = startNegotiation;
-  }, [peerConnection.pcRef, startNegotiation]);
+  }, [peerConnection.pc, startNegotiation]);
 
-  // добавление медиатреков один раз (addTrack сам инициирует negotiationneeded)
+  // добавление медиатреков один раз, сразу после создания RTCPeerConnection
+  // (addTrack сам инициирует negotiationneeded, поэтому делаем это ДО переговоров)
   useEffect(() => {
-    const pc = peerConnection.pcRef.current;
+    const pc = peerConnection.pc;
     if (!pc || !localStream) return;
     const hasVideoTrack = pc.getSenders().some(s => s.track?.kind === 'video');
     if (!hasVideoTrack) {
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
     }
-  }, [peerConnection.pcRef, localStream]);
+  }, [peerConnection.pc, localStream]);
 
   // когда появляется пир — запустить переговоры, если ещё не запущены
   useEffect(() => {
-    const pc = peerConnection.pcRef.current;
+    const pc = peerConnection.pc;
     if (!pc || status !== 'NEGOTIATING' || !remoteUserId) return;
     if (pc.signalingState === 'stable' && !pc.localDescription) {
       startNegotiation();
     }
-  }, [status, remoteUserId, peerConnection.pcRef, startNegotiation]);
+  }, [status, remoteUserId, peerConnection.pc, startNegotiation]);
 
   // обработчики сигнального канала (perfect negotiation: polite/impolite)
   useEffect(() => {
@@ -220,16 +221,10 @@ export function VideoCallRoom({
       remoteUserIdRef.current = senderId;
       setStatus('NEGOTIATING');
 
-      const pc = peerConnection.pcRef.current;
+      const pc = peerConnection.pc;
       if (!pc) return;
 
       try {
-        const senders = pc.getSenders();
-        const hasVideoTrack = senders.some(s => s.track?.kind === 'video');
-        if (!hasVideoTrack && localStream) {
-          localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-        }
-
         const polite = userId > senderId;
         const offerCollision = sdp.type === 'offer' &&
           (makingOfferRef.current || pc.signalingState !== 'stable');
@@ -254,7 +249,7 @@ export function VideoCallRoom({
     });
 
     socket.on('answer', async ({ sdp }: { userId: string; sdp: RTCSessionDescriptionInit }) => {
-      const pc = peerConnection.pcRef.current;
+      const pc = peerConnection.pc;
       if (!pc) return;
 
       try {
@@ -269,7 +264,7 @@ export function VideoCallRoom({
     });
 
     socket.on('ice-candidate', async ({ candidate }: { userId: string; candidate: RTCIceCandidateInit }) => {
-      const pc = peerConnection.pcRef.current;
+      const pc = peerConnection.pc;
       if (!pc) return;
 
       try {
@@ -290,7 +285,7 @@ export function VideoCallRoom({
       socket.off('answer');
       socket.off('ice-candidate');
     };
-  }, [signaling.socket, peerConnection.pcRef, signaling, localStream, startNegotiation, userId]);
+  }, [signaling.socket, peerConnection.pc, signaling, startNegotiation, userId]);
 
   useEffect(() => {
     return () => {
