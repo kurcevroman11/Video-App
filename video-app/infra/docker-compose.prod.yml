@@ -83,6 +83,16 @@ services:
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
 
+  # TURN/STUN relay (coturn). host network: relay range 49152-65535 через userland-proxy
+  # не пробрасывается, поэтому контейнер использует сеть хоста напрямую.
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - certs:/etc/letsencrypt:ro
+    restart: unless-stopped
+
   # One-shot: issue/renew Let's Encrypt cert. Run on demand:
   #   docker compose --profile certs run --rm certbot
   certbot:
