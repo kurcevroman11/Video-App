@@ -158,23 +158,26 @@ export function VideoCallRoom({
     joinRoom();
   }, [joinRoom]);
 
-  // Единственная точка создания и отправки любого SDP (offer ИЛИ answer).
-  // setLocalDescription() без аргументов: браузер сам выбирает роль (offer/answer) по текущему состоянию.
+  // Единственная точка создания offer. Ответ (answer) создаётся напрямую в обработчике offer.
+  // setLocalDescription() без аргументов: браузер создаёт offer, т.к. состояние 'stable'.
   const startNegotiation = useCallback(async () => {
     const pc = peerConnection.pcRef.current;
     const target = remoteUserIdRef.current;
     if (!pc || !target || makingOfferRef.current) return;
+    if (pc.signalingState !== 'stable') return;
 
     try {
       makingOfferRef.current = true;
       await pc.setLocalDescription();
       const desc = pc.localDescription;
-      if (desc) {
-        if (desc.type === 'offer') signaling.sendOffer(target, desc);
-        else signaling.sendAnswer(target, desc);
+      if (desc && desc.type === 'offer') {
+        signaling.sendOffer(target, desc);
       }
     } catch (err: any) {
-      setError(`Negotiation failed: ${err.message}`);
+      // Отмена из-за glare (rollback при приёме встречного offer) — не ошибка
+      if (err?.name !== 'InvalidStateError' && err?.name !== 'AbortError') {
+        setError(`Negotiation failed: ${err.message}`);
+      }
     } finally {
       makingOfferRef.current = false;
     }
@@ -241,7 +244,13 @@ export function VideoCallRoom({
         pendingCandidatesRef.current = [];
 
         if (sdp.type === 'offer') {
-          await startNegotiation();
+          // Состояние now 'have-remote-offer': setLocalDescription() без аргументов
+          // заставляет браузер сгенерировать answer.
+          await pc.setLocalDescription();
+          const answer = pc.localDescription;
+          if (answer && answer.type === 'answer') {
+            signaling.sendAnswer(senderId, answer);
+          }
         }
       } catch (err: any) {
         setError(`Offer handling error: ${err.message}`);
