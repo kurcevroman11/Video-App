@@ -16,11 +16,16 @@ export async function getIceServers(
     throw new Error(`Failed to fetch TURN credentials: ${res.status}`);
   }
 
-  const { urls, username, credential } = await res.json();
+  let data: any;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Failed to fetch TURN credentials: invalid response`);
+  }
 
   return [
     stunServer,
-    { urls, username, credential },
+    { urls: data.urls, username: data.username, credential: data.credential },
   ];
 }
 

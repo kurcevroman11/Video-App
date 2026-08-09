@@ -40,6 +40,14 @@ function App() {
   const primaryBtn =
     'w-full rounded-xl bg-accent px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:cursor-not-allowed disabled:opacity-40';
 
+  async function readJson(res: Response): Promise<any> {
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  }
+
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
     setAuthError('');
@@ -57,13 +65,13 @@ function App() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Auth failed');
+        const err = await readJson(res);
+        throw new Error(err?.message || `Auth failed (HTTP ${res.status})`);
       }
 
-      const data = await res.json();
-      setToken(data.accessToken);
-      setUser(data.user);
+      const data = await readJson(res);
+      setToken(data?.accessToken);
+      setUser(data?.user);
       setView('rooms');
     } catch (err: any) {
       setAuthError(err.message);
@@ -88,11 +96,11 @@ function App() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to create room');
+        const err = await readJson(res);
+        throw new Error(err?.message || `Failed to create room (HTTP ${res.status})`);
       }
 
-      const created = await res.json();
+      const created = await readJson(res);
       setRoom(created);
       setRoomId(created.id);
       await handleJoinRoom(created.id);
@@ -113,11 +121,11 @@ function App() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || 'Failed to join room');
+        const err = await readJson(res);
+        throw new Error(err?.message || `Failed to join room (HTTP ${res.status})`);
       }
 
-      const roomData = await res.json();
+      const roomData = await readJson(res);
       setRoom(roomData);
       setRoomId(id);
       setView('join');
