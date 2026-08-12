@@ -9,11 +9,22 @@ interface RoomParticipant {
 export class SignalingStateService {
   private rooms = new Map<string, Map<string, RoomParticipant>>();
 
-  addParticipant(roomId: string, userId: string, socketId: string): void {
-    if (!this.rooms.has(roomId)) {
-      this.rooms.set(roomId, new Map());
+  addParticipant(roomId: string, userId: string, socketId: string): string | undefined {
+    const room = this.rooms.get(roomId) ?? new Map<string, RoomParticipant>();
+    this.rooms.set(roomId, room);
+
+    // Не более одного сокета на пользователя в комнате: старый (залипший после
+    // reconnect/перезагрузки) сокет удаляем, чтобы он не отравлял ICE чужими кандидатами.
+    let removedSocketId: string | undefined;
+    for (const [existingSocketId, participant] of room.entries()) {
+      if (participant.userId === userId && existingSocketId !== socketId) {
+        room.delete(existingSocketId);
+        removedSocketId = existingSocketId;
+      }
     }
-    this.rooms.get(roomId)!.set(socketId, { userId, socketId });
+
+    room.set(socketId, { userId, socketId });
+    return removedSocketId;
   }
 
   removeParticipant(roomId: string, socketId: string): RoomParticipant | undefined {

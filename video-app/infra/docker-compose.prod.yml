@@ -14,8 +14,10 @@ services:
       - certs:/etc/letsencrypt:ro
       - certbot_www:/var/www/certbot:ro
     depends_on:
-      - gateway-service
-      - signaling-service
+      gateway-service:
+        condition: service_healthy
+      signaling-service:
+        condition: service_healthy
     restart: unless-stopped
 
   gateway-service:
@@ -39,8 +41,16 @@ services:
       TURN_TLS_URL: ${TURN_TLS_URL}
       CORS_ORIGINS: ${CORS_ORIGINS:-${DOMAIN_PROTOCOL}://${DOMAIN}}
     depends_on:
-      - postgres
-      - room-service
+      postgres:
+        condition: service_healthy
+      room-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   room-service:
@@ -55,7 +65,14 @@ services:
       DATABASE_PORT: "5432"
       DATABASE_NAME: videoapp_room
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(50051, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   signaling-service:
@@ -69,7 +86,14 @@ services:
       ROOM_SERVICE_HOST: room-service
       ROOM_SERVICE_PORT: "50051"
     depends_on:
-      - room-service
+      room-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   postgres:
@@ -81,6 +105,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   # TURN/STUN relay (coturn). host network: relay range 49152-65535 через userland-proxy

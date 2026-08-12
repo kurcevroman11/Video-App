@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 import { PrismaClient } from '../../node_modules/.prisma/gateway-client';
+import { AllConfigs } from '../config';
 
 @Injectable()
 export class PrismaService
@@ -9,10 +12,18 @@ export class PrismaService
 {
     private readonly logger = new Logger(PrismaService.name);
 
-    public constructor(private readonly configService: ConfigService) {
-        super({
-            datasourceUrl: `postgresql://${configService.get('DATABASE_USER')}:${configService.get('DATABASE_PASSWORD')}@${configService.get('DATABASE_HOST')}:${configService.get('DATABASE_PORT')}/${configService.get('DATABASE_NAME')}`,
+    public constructor(private readonly configService: ConfigService<AllConfigs>) {
+        const pool = new Pool({
+            user: configService.get('database.user', { infer: true }),
+            password: configService.get('database.password', { infer: true }),
+            host: configService.get('database.host', { infer: true }),
+            port: configService.get('database.port', { infer: true }),
+            database: configService.get('database.name', { infer: true }),
         });
+
+        const adapter = new PrismaPg(pool);
+
+        super({ adapter });
     }
 
     public async onModuleInit() {

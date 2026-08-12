@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { VideoCallRoom } from './components/VideoCallRoom';
 import { JoinScreen } from './components/JoinScreen';
 import { LogOutIcon, UserIcon, AlertIcon } from './components/icons';
+import { decodeJwtExp, refreshAccessToken } from './lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 const SIGNALING_URL = import.meta.env.VITE_SIGNALING_URL || '';
@@ -20,6 +21,7 @@ interface Room {
 
 function App() {
   const [token, setToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
   const [user, setUser] = useState<User | null>(null);
   const [roomId, setRoomId] = useState('');
   const [room, setRoom] = useState<Room | null>(null);
@@ -35,6 +37,8 @@ function App() {
   const [newRoomType, setNewRoomType] = useState<'PUBLIC' | 'PRIVATE'>('PUBLIC');
   const [joinError, setJoinError] = useState('');
 
+  const refreshingRef = useRef(false);
+
   const inputClass =
     'w-full rounded-xl border border-border bg-bg px-4 py-3 text-sm text-text placeholder:text-muted/50 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30';
   const primaryBtn =
@@ -47,6 +51,39 @@ function App() {
       return null;
     }
   }
+
+  const refreshTokens = useRef<() => Promise<boolean>>(async () => false);
+  refreshTokens.current = async () => {
+    if (!refreshToken) return false;
+    if (refreshingRef.current) return false;
+    refreshingRef.current = true;
+    try {
+      const pair = await refreshAccessToken(API_URL, refreshToken);
+      setToken(pair.accessToken);
+      setRefreshToken(pair.refreshToken);
+      return true;
+    } catch {
+      handleLogout();
+      return false;
+    } finally {
+      refreshingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    const exp = decodeJwtExp(token);
+    if (!exp) return;
+    const ttlMs = (exp * 1000 - Date.now()) - 60_000;
+    if (ttlMs <= 0) {
+      refreshTokens.current();
+      return;
+    }
+    const timer = setTimeout(() => {
+      refreshTokens.current();
+    }, Math.min(ttlMs, 10 * 60 * 1000));
+    return () => clearTimeout(timer);
+  }, [token, refreshToken]);
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
@@ -71,6 +108,7 @@ function App() {
 
       const data = await readJson(res);
       setToken(data?.accessToken);
+      setRefreshToken(data?.refreshToken ?? '');
       setUser(data?.user);
       setView('rooms');
     } catch (err: any) {
@@ -136,6 +174,7 @@ function App() {
 
   function handleLogout() {
     setToken('');
+    setRefreshToken('');
     setUser(null);
     setRoom(null);
     setRoomId('');

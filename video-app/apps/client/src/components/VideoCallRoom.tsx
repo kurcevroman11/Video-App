@@ -55,6 +55,13 @@ const statusLabels: Record<ConnectionStatus, string> = {
   DEVICE_BUSY: 'Устройство занято другим приложением',
 };
 
+function mlines(sdp: RTCSessionDescriptionInit | RTCSessionDescription | null): string {
+  if (!sdp) return '?';
+  const raw = (sdp as any).sdp as string | undefined;
+  if (!raw) return '?';
+  return raw.split('\r\n').filter((l: string) => /^m=/.test(l)).join('|');
+}
+
 export function VideoCallRoom({
   signalingUrl,
   apiUrl,
@@ -76,31 +83,68 @@ export function VideoCallRoom({
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const remoteUserIdRef = useRef<string | null>(null);
+  const peerLockRef = useRef<string | null>(null);
   const makingOfferRef = useRef(false);
   const ignoreOfferRef = useRef(false);
   const joinedRef = useRef(false);
+  const peerGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [reconnecting, setReconnecting] = useState(false);
+
+  const clearPeerGrace = useCallback(() => {
+    if (peerGraceTimerRef.current) {
+      clearTimeout(peerGraceTimerRef.current);
+      peerGraceTimerRef.current = null;
+    }
+  }, []);
 
   const signaling = useSignalingSocket(signalingUrl, {
     onRoomJoined: (participants) => {
+      clearPeerGrace();
+      setReconnecting(false);
       if (participants.length === 0) {
         setStatus('WAITING_FOR_PEER');
       } else {
-        setRemoteUserId(participants[0].userId);
+        const peer = participants.find(p => p.userId !== userId) ?? participants[0];
+        peerLockRef.current = peer.userId;
+        setRemoteUserId(peer.userId);
         setStatus('NEGOTIATING');
       }
     },
-    onUserJoined: (userId) => {
-      setRemoteUserId(userId);
+    onUserJoined: (joinedUserId) => {
+      // Игнорируем лишних участников (призрачные/старые сессии пользователя).
+      if (joinedUserId === userId) return;
+      clearPeerGrace();
+      setReconnecting(false);
+      if (peerLockRef.current && peerLockRef.current !== joinedUserId) return;
+      peerLockRef.current = joinedUserId;
+      setRemoteUserId(joinedUserId);
       setStatus('NEGOTIATING');
     },
-    onUserLeft: () => {
+    onUserLeft: (leftUserId) => {
+      // Ушёл не наш собеседник (например, залипший сокет того же пользователя) — игнорируем.
+      if (peerLockRef.current && leftUserId && leftUserId !== peerLockRef.current) return;
+      peerLockRef.current = null;
       setRemoteUserId(null);
-      setStatus('DISCONNECTED');
+      setStatus('WAITING_FOR_PEER');
       pendingCandidatesRef.current = [];
+      clearPeerGrace();
+      peerGraceTimerRef.current = setTimeout(() => {
+        setStatus('DISCONNECTED');
+      }, 8000);
     },
     onError: ({ code, message }) => {
       setError(`${code}: ${message}`);
       setStatus('FAILED');
+    },
+    onDisconnect: () => {
+      setReconnecting(true);
+      setStatus('CONNECTING_SIGNALING');
+    },
+    onReconnect: () => {
+      setReconnecting(false);
+      setRemoteUserId(null);
+      signaling.joinRoom(roomId);
     },
   });
 
@@ -119,12 +163,13 @@ export function VideoCallRoom({
   }, [peerConnection.remoteStream]);
 
   useEffect(() => {
+    if (reconnecting) return;
     if (peerConnection.connectionState === 'connected') {
       setStatus('CONNECTED');
     } else if (peerConnection.connectionState === 'failed') {
       setStatus('FAILED');
     }
-  }, [peerConnection.connectionState]);
+  }, [peerConnection.connectionState, reconnecting]);
 
   const joinRoom = useCallback(async () => {
     setError(null);
@@ -151,6 +196,11 @@ export function VideoCallRoom({
     signaling.joinRoom(roomId);
   }, [signaling, token, roomId, apiUrl]);
 
+  // обновить токен сокета при ротации (тихий refresh в App)
+  useEffect(() => {
+    signaling.updateToken(token);
+  }, [token, signaling]);
+
   // автоматический вход при монтировании экрана звонка
   useEffect(() => {
     if (joinedRef.current) return;
@@ -170,6 +220,7 @@ export function VideoCallRoom({
       makingOfferRef.current = true;
       await pc.setLocalDescription();
       const desc = pc.localDescription;
+      console.log(`[rtc→] SEND offer to=${target} m=${mlines(desc)}`);
       if (desc && desc.type === 'offer') {
         signaling.sendOffer(target, desc);
       }
@@ -194,14 +245,23 @@ export function VideoCallRoom({
     pc.onnegotiationneeded = startNegotiation;
   }, [peerConnection.pc, startNegotiation]);
 
-  // добавление медиатреков один раз, сразу после создания RTCPeerConnection
-  // (addTrack сам инициирует negotiationneeded, поэтому делаем это ДО переговоров)
+  // добавление медиатреков: переиспользуем существующие трансиверы нужного kind.
+  // Просто addTrack() при повторном появлении localStream (или после того, как браузер
+  // автосоздал recvonly-трансиверы из offer) даёт дублирующие m-секции
+  // и ERROR_CONTENT ("send parameters" mismatch) — поэтому берём replaceTrack.
   useEffect(() => {
     const pc = peerConnection.pc;
     if (!pc || !localStream) return;
-    const hasVideoTrack = pc.getSenders().some(s => s.track?.kind === 'video');
-    if (!hasVideoTrack) {
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    for (const kind of ['audio', 'video'] as const) {
+      const track = localStream.getTracks().find(t => t.kind === kind);
+      if (!track) continue;
+      const existing = pc.getTransceivers().find(tr => tr.receiver.track?.kind === kind);
+      if (existing) {
+        if (existing.direction !== 'sendrecv') existing.direction = 'sendrecv';
+        existing.sender.replaceTrack(track);
+      } else if (!pc.getSenders().some(s => s.track?.kind === kind)) {
+        pc.addTrack(track, localStream);
+      }
     }
   }, [peerConnection.pc, localStream]);
 
@@ -220,6 +280,11 @@ export function VideoCallRoom({
     const socket = signaling.socket;
 
     socket.on('offer', async ({ userId: senderId, sdp }: { userId: string; sdp: RTCSessionDescriptionInit }) => {
+      if (peerLockRef.current && senderId !== peerLockRef.current) {
+        console.log(`[rtc→] IGNORE offer from=${senderId} (not peer ${peerLockRef.current})`);
+        return;
+      }
+      peerLockRef.current = senderId;
       setRemoteUserId(senderId);
       remoteUserIdRef.current = senderId;
       setStatus('NEGOTIATING');
@@ -232,6 +297,7 @@ export function VideoCallRoom({
         const offerCollision = sdp.type === 'offer' &&
           (makingOfferRef.current || pc.signalingState !== 'stable');
         ignoreOfferRef.current = !polite && offerCollision;
+        console.log(`[rtc→] RECV offer from=${senderId} polite=${polite} collision=${offerCollision} signalingState=${pc.signalingState} m=${mlines(sdp)}`);
         if (ignoreOfferRef.current) {
           console.log('Ignoring colliding offer (impolite peer)');
           return;
@@ -248,6 +314,7 @@ export function VideoCallRoom({
           // заставляет браузер сгенерировать answer.
           await pc.setLocalDescription();
           const answer = pc.localDescription;
+          console.log(`[rtc→] SEND answer to=${senderId} m=${mlines(answer)}`);
           if (answer && answer.type === 'answer') {
             signaling.sendAnswer(senderId, answer);
           }
@@ -257,10 +324,22 @@ export function VideoCallRoom({
       }
     });
 
-    socket.on('answer', async ({ sdp }: { userId: string; sdp: RTCSessionDescriptionInit }) => {
+    socket.on('answer', async ({ userId: senderId, sdp }: { userId: string; sdp: RTCSessionDescriptionInit }) => {
       const pc = peerConnection.pc;
       if (!pc) return;
+      if (peerLockRef.current && senderId !== peerLockRef.current) {
+        console.log(`[rtc→] IGNORE answer from=${senderId} (not peer ${peerLockRef.current})`);
+        return;
+      }
 
+      // Устаревший ответ: у нас нет исходящего offer (он был откатан при glare-разрешении).
+      // Применять его нельзя — в stable setRemoteDescription(answer) бросит исключение.
+      if (pc.signalingState !== 'have-local-offer') {
+        console.log('Ignoring stale answer (no pending offer), state:', pc.signalingState);
+        return;
+      }
+
+      console.log(`[rtc→] RECV answer signalingState=${pc.signalingState} m=${mlines(sdp)}`);
       try {
         await pc.setRemoteDescription(sdp);
         for (const c of pendingCandidatesRef.current) {
@@ -272,9 +351,19 @@ export function VideoCallRoom({
       }
     });
 
-    socket.on('ice-candidate', async ({ candidate }: { userId: string; candidate: RTCIceCandidateInit }) => {
+    socket.on('ice-candidate', async ({ userId: senderId, candidate }: { userId: string; candidate: RTCIceCandidateInit }) => {
       const pc = peerConnection.pc;
       if (!pc) return;
+      if (peerLockRef.current && senderId !== peerLockRef.current) {
+        console.log(`[rtc→] IGNORE ice-candidate from=${senderId} (not peer ${peerLockRef.current})`);
+        return;
+      }
+
+      const c = candidate as RTCIceCandidate;
+      const wire = c.candidate ?? '';
+      const tokens = wire.split(' ');
+      console.log(`[rtc→] RECV ice-candidate from=${senderId} ` +
+        `${tokens[0] ?? '?'}:${tokens[2] ?? '?'}:${tokens[7] ?? '?'}@${tokens[4] ?? '?'}:${tokens[5] ?? '?'}`);
 
       try {
         if (pc.remoteDescription) {
@@ -298,6 +387,7 @@ export function VideoCallRoom({
 
   useEffect(() => {
     return () => {
+      clearPeerGrace();
       localStream?.getTracks().forEach(track => track.stop());
       peerConnection.close();
       signaling.disconnect();
@@ -305,6 +395,7 @@ export function VideoCallRoom({
   }, []);
 
   const handleLeave = () => {
+    clearPeerGrace();
     localStream?.getTracks().forEach(track => track.stop());
     peerConnection.close();
     signaling.disconnect();

@@ -1,20 +1,23 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 export interface SignalingEvents {
   onUserJoined?: (userId: string) => void;
-  onUserLeft?: () => void;
+  onUserLeft?: (userId: string) => void;
   onOffer?: (data: { userId: string; sdp: RTCSessionDescriptionInit }) => void;
   onAnswer?: (data: { userId: string; sdp: RTCSessionDescriptionInit }) => void;
   onIceCandidate?: (data: { userId: string; candidate: RTCIceCandidateInit }) => void;
   onRoomJoined?: (participants: { userId: string }[]) => void;
   onError?: (data: { code: string; message: string }) => void;
+  onDisconnect?: () => void;
+  onReconnect?: () => void;
 }
 
 export interface UseSignalingSocketReturn {
   socket: Socket | null;
   connect: (token: string) => void;
   disconnect: () => void;
+  updateToken: (token: string) => void;
   joinRoom: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
   sendOffer: (targetUserId: string, sdp: RTCSessionDescriptionInit) => void;
@@ -27,6 +30,14 @@ export function useSignalingSocket(
   events: SignalingEvents
 ): UseSignalingSocketReturn {
   const socketRef = useRef<Socket | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const hasConnectedRef = useRef(false);
+
+  const updateToken = useCallback((token: string) => {
+    if (socketRef.current) {
+      socketRef.current.auth = { token };
+    }
+  }, []);
 
   const connect = useCallback((token: string) => {
     if (socketRef.current?.connected) return;
@@ -34,14 +45,27 @@ export function useSignalingSocket(
     const socket = io(`${signalingUrl}/signaling`, {
       auth: { token },
       transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
     });
+    socketRef.current = socket;
+    setSocket(socket);
 
     socket.on('connect', () => {
       console.log('Signaling socket connected');
+      const reconnecting = hasConnectedRef.current;
+      hasConnectedRef.current = true;
+      if (reconnecting) {
+        events.onReconnect?.();
+      }
     });
 
-    socket.on('disconnect', () => {
-      console.log('Signaling socket disconnected');
+    socket.on('disconnect', (reason) => {
+      console.log('Signaling socket disconnected', reason);
+      events.onDisconnect?.();
     });
 
     socket.on('room-joined', ({ participants }: { participants: { userId: string }[] }) => {
@@ -52,8 +76,8 @@ export function useSignalingSocket(
       events.onUserJoined?.(userId);
     });
 
-    socket.on('user-left', () => {
-      events.onUserLeft?.();
+    socket.on('user-left', ({ userId }: { userId: string }) => {
+      events.onUserLeft?.(userId);
     });
 
     socket.on('offer', ({ userId, sdp }: { userId: string; sdp: RTCSessionDescriptionInit }) => {
@@ -71,13 +95,12 @@ export function useSignalingSocket(
     socket.on('error', ({ code, message }: { code: string; message: string }) => {
       events.onError?.({ code, message });
     });
-
-    socketRef.current = socket;
   }, [signalingUrl, events]);
 
   const disconnect = useCallback(() => {
     socketRef.current?.disconnect();
     socketRef.current = null;
+    setSocket(null);
   }, []);
 
   const joinRoom = useCallback((roomId: string) => {
@@ -103,13 +126,15 @@ export function useSignalingSocket(
   useEffect(() => {
     return () => {
       socketRef.current?.disconnect();
+      socketRef.current = null;
     };
   }, []);
 
   return {
-    socket: socketRef.current,
+    socket,
     connect,
     disconnect,
+    updateToken,
     joinRoom,
     leaveRoom,
     sendOffer,

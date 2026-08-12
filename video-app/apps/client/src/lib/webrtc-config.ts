@@ -23,6 +23,18 @@ export async function getIceServers(
     throw new Error(`Failed to fetch TURN credentials: invalid response`);
   }
 
+  console.log('[rtc] TURN credentials received:', {
+    urls: data.urls,
+    username: data.username ? `${data.username.split(':')[0]}:<expiry>` : undefined,
+    hasCredential: !!data.credential,
+  });
+
+  // Если выдан пустой список urls (TURN не сконфигурирован) — используем только STUN.
+  if (!data.urls || data.urls.length === 0 || !data.username) {
+    console.log('[rtc] TURN not configured (empty urls) — using STUN only');
+    return [stunServer];
+  }
+
   return [
     stunServer,
     { urls: data.urls, username: data.username, credential: data.credential },

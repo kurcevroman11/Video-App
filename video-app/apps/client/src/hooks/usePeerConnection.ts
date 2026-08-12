@@ -13,6 +13,17 @@ export interface UsePeerConnectionReturn {
   close: () => void;
 }
 
+const LOG_TAG = '[rtc]';
+
+function candidateInfo(candidate: RTCIceCandidate | RTCIceCandidateInit | null): string {
+  if (!candidate) return 'end-of-candidates';
+  const c = candidate as RTCIceCandidate;
+  const parts = c.candidate ? c.candidate.split(' ') : [];
+  const type = parts[0] || '?';
+  const port = c.port ?? parts[5] ?? '?';
+  return `${type}:${c.protocol ?? '?'}:${c.type ?? '?'}@${c.address ?? '?'}:${port}`;
+}
+
 export function usePeerConnection(
   socket: Socket | null,
   remoteUserId: string | null,
@@ -34,21 +45,63 @@ export function usePeerConnection(
     setConnectionState('new');
     setRemoteStream(null);
 
+    console.log(LOG_TAG, `create PC remote=${remoteUserId} iceServers=`, iceServers.map(s => ({
+      urls: s.urls,
+      username: s.username ? s.username.split(':')[0] + ':...' : undefined,
+      hasCredential: !!s.credential,
+    })));
+
     pc.onconnectionstatechange = () => {
       setConnectionState(pc.connectionState);
+      console.log(LOG_TAG, `connectionState=${pc.connectionState}`);
+      if (pc.connectionState === 'connected') {
+        pc.getStats().then((stats) => {
+          stats.forEach((report) => {
+            if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+              const local = stats.get(report.localCandidateId);
+              const remote = stats.get(report.remoteCandidateId);
+              console.log(LOG_TAG, `ACTIVE PAIR local=${local?.candidateType ?? '?'}:${local?.ip ?? '?'} remote=${remote?.candidateType ?? '?'}:${remote?.ip ?? '?'} via=${report.nominated ? 'nominated' : 'not-nominated'}`);
+            }
+          });
+        });
+      }
+      if (pc.connectionState === 'failed') {
+        pc.getStats().then((stats) => {
+          stats.forEach((report) => {
+            if (report.type === 'candidate-pair') {
+              console.log(LOG_TAG, `pair state=${report.state} local=${report.localCandidateId} remote=${report.remoteCandidateId}`);
+            }
+          });
+        });
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(LOG_TAG, `iceConnectionState=${pc.iceConnectionState}`);
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log(LOG_TAG, `signalingState=${pc.signalingState}`);
     };
 
     pc.ontrack = (event) => {
+      console.log(LOG_TAG, `onTrack kind=${event.track.kind} streamId=${(event.streams[0]?.id) ?? '?'}`);
       setRemoteStream(event.streams[0] || null);
     };
 
     pc.onicecandidate = (event) => {
+      console.log(LOG_TAG, `local candidate: ${candidateInfo(event.candidate)}`);
       if (event.candidate) {
         socket.emit('ice-candidate', {
           targetUserId: remoteUserId,
           candidate: event.candidate,
         });
       }
+    };
+
+    pc.onicecandidateerror = (event) => {
+      const e = event as RTCPeerConnectionIceErrorEvent & { url?: string; address?: string; port?: number };
+      console.error(LOG_TAG, `icecandidateerror code=${e.errorCode} ${e.errorText} url=${e.url ?? '?'} address=${e.address ?? '?'}:${e.port ?? '?'}`);
     };
 
     return () => {
@@ -64,8 +117,10 @@ export function usePeerConnection(
     if (!pc) return;
 
     if (pc.remoteDescription) {
+      console.log(LOG_TAG, `added remote candidate: ${candidateInfo(candidate)}`);
       await pc.addIceCandidate(candidate);
     } else {
+      console.log(LOG_TAG, `queued remote candidate (no remote desc yet): ${candidateInfo(candidate)}`);
       pendingCandidatesRef.current.push(candidate);
     }
   }, []);
@@ -74,6 +129,9 @@ export function usePeerConnection(
     const pc = pcRef.current;
     if (!pc) return;
 
+    if (pendingCandidatesRef.current.length > 0) {
+      console.log(LOG_TAG, `flushing ${pendingCandidatesRef.current.length} queued remote candidates`);
+    }
     for (const candidate of pendingCandidatesRef.current) {
       await pc.addIceCandidate(candidate);
     }

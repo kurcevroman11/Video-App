@@ -95,8 +95,14 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
       return;
     }
 
+    // Если у пользователя был залипший сокет в этой комнате — отсоединяем его
+    // от socket.io-рума и уведомляем остальных, чтобы они не ждали призрака.
+    const staleSocketId = this.signalingState.addParticipant(roomId, userId, client.id);
+    if (staleSocketId && staleSocketId !== client.id) {
+      this.server.to(roomId).emit('user-left', { userId });
+    }
+
     client.join(roomId);
-    this.signalingState.addParticipant(roomId, userId, client.id);
 
     const existingParticipants = this.signalingState.getParticipants(roomId, client.id);
     client.emit('room-joined', {

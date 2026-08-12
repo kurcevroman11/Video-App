@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { TurnModule } from './turn/turn.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { HealthModule } from './health/health.module';
 import { databaseEnv, jwtEnv, turnEnv } from './config';
 
 @Module({
@@ -26,6 +27,7 @@ import { databaseEnv, jwtEnv, turnEnv } from './config';
       },
     ]),
     PrismaModule,
+    HealthModule,
     AuthModule,
     UsersModule,
     RoomsModule,

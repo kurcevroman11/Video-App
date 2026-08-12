@@ -21,24 +21,41 @@ export class TurnController {
     description:
       'Generates short-lived TURN credentials (RFC draft-uberti-behave-turn-rest) ' +
       'signed with the shared secret. The client must fetch these right before creating ' +
-      'an RTCPeerConnection.',
+      'an RTCPeerConnection. If TURN is not configured (empty TURN_URL), returns an empty ' +
+      'list so the client falls back to STUN only.',
   })
   @ApiResponse({ status: 200, description: 'TURN credentials returned' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   getTurnCredentials(@CurrentUser() user: JwtPayload) {
+    const turnUrl = this.configService.get<string>('turn.url');
+    const turnTlsUrl = this.configService.get<string>('turn.tlsUrl');
+
+    const urls: string[] = [];
+    if (turnUrl) urls.push(`turn:${turnUrl}`);
+    if (turnTlsUrl) urls.push(`turns:${turnTlsUrl}`);
+
+    // TURN не сконфигурирован — не выдаём битых URL, вернём пустой список.
+    if (urls.length === 0) {
+      return {
+        urls,
+        username: '',
+        credential: '',
+        ttl: 0,
+        enabled: false,
+      };
+    }
+
+    const sharedSecret = this.configService.get<string>('turn.sharedSecret')!;
     const expiry = Math.floor(Date.now() / 1000) + TURN_CREDENTIALS_TTL_SECONDS;
     const username = `${expiry}:${user.sub}`;
-    const sharedSecret = this.configService.get<string>('turn.sharedSecret')!;
-    const turnUrl = this.configService.get<string>('turn.url')!;
-    const turnTlsUrl = this.configService.get<string>('turn.tlsUrl')!;
-
     const credential = createHmac('sha1', sharedSecret).update(username).digest('base64');
 
     return {
-      urls: [`turn:${turnUrl}`, `turns:${turnTlsUrl}`],
+      urls,
       username,
       credential,
       ttl: TURN_CREDENTIALS_TTL_SECONDS,
+      enabled: true,
     };
   }
 }

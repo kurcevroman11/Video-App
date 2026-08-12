@@ -17,9 +17,12 @@ function validateEnv(env: Record<string, unknown>) {
 export const turnEnv = registerAs('turn', () => {
   validateEnv(process.env);
 
+  // url/tlsUrl пустые, если не заданы — тогда TURN не рекламируется (controller вернёт
+  // пустой список, клиент работает на STUN). Не подставляем фиктивные localhost:*, чтобы
+  // не раздавать битые TURN-URL.
   return {
-    sharedSecret: process.env.TURN_SHARED_SECRET!,
-    url: process.env.TURN_URL || 'localhost:3478',
-    tlsUrl: process.env.TURN_TLS_URL || 'localhost:5349',
+    sharedSecret: process.env.TURN_SHARED_SECRET || '',
+    url: process.env.TURN_URL || '',
+    tlsUrl: process.env.TURN_TLS_URL || '',
   };
 });

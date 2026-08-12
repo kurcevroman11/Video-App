@@ -5,11 +5,28 @@ version: '3.8'
 #   - network_mode: host (релейный диапазон ~16000 портов нельзя пробрасывать через userland-proxy);
 #   - в host-сети контейнер использует сеть хоста, поэтому конфликты портов с остальными
 #     сервисами исключаются только выносом на отдельный хост.
+#
+# Конфиг turnserver.conf генерируется из env скриптом ./coturn/entrypoint.sh,
+# поэтому лок и прод используют один и тот же compose-файл без ручной правки конфига.
+# Запуск:
+#   docker compose --env-file infra/.env -f infra/docker-compose.coturn.yml up -d
 
 services:
   coturn:
     image: coturn/coturn:latest
     network_mode: host
+    # root: entrypoint генерирует /etc/coturn/turnserver.conf и для чтения LE-сертификатов
+    # (и каталоги томов, и сам образ запускаются как nobody по умолчанию).
+    user: root
+    entrypoint: /entrypoint.sh
+    environment:
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_REALM: ${TURN_REALM:-localhost}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+      TURN_TLS: ${TURN_TLS:-off}
+      TURN_TLS_CERT_DIR: ${TURN_TLS_CERT_DIR:-/etc/letsencrypt/live/rkvideoapp.ru}
     volumes:
-      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./coturn/entrypoint.sh:/entrypoint.sh:ro
+      # для прода: смонтировать каталог с сертификатами, если TURN_TLS=on
+      # - certs:/etc/letsencrypt:ro
     restart: unless-stopped
