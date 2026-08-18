@@ -5,9 +5,17 @@ interface RoomParticipant {
   socketId: string;
 }
 
+export interface RoomProducer {
+  producerId: string;
+  userId: string;
+  kind: 'audio' | 'video';
+}
+
 @Injectable()
 export class SignalingStateService {
   private rooms = new Map<string, Map<string, RoomParticipant>>();
+  // roomId → producerId → { userId, kind } (для уведомления новых joiners о существующих producer'ах)
+  private roomProducers = new Map<string, Map<string, RoomProducer>>();
 
   addParticipant(roomId: string, userId: string, socketId: string): string | undefined {
     const room = this.rooms.get(roomId) ?? new Map<string, RoomParticipant>();
@@ -100,6 +108,52 @@ export class SignalingStateService {
       }
     }
     return false;
+  }
+
+  addProducer(roomId: string, producerId: string, userId: string, kind: 'audio' | 'video'): void {
+    if (!this.roomProducers.has(roomId)) {
+      this.roomProducers.set(roomId, new Map());
+    }
+    this.roomProducers.get(roomId)!.set(producerId, { producerId, userId, kind });
+  }
+
+  removeProducer(roomId: string, producerId: string): RoomProducer | undefined {
+    const room = this.roomProducers.get(roomId);
+    if (!room) return undefined;
+    const removed = room.get(producerId);
+    room.delete(producerId);
+    if (room.size === 0) {
+      this.roomProducers.delete(roomId);
+    }
+    return removed;
+  }
+
+  getProducers(roomId: string): RoomProducer[] {
+    return Array.from(this.roomProducers.get(roomId)?.values() ?? []);
+  }
+
+  getProducerIdsByUser(roomId: string, userId: string): string[] {
+    const room = this.roomProducers.get(roomId);
+    if (!room) return [];
+    return Array.from(room.values())
+      .filter(p => p.userId === userId)
+      .map(p => p.producerId);
+  }
+
+  removeAllProducersByUser(roomId: string, userId: string): string[] {
+    const room = this.roomProducers.get(roomId);
+    if (!room) return [];
+    const removed: string[] = [];
+    for (const [producerId, producer] of [...room.entries()]) {
+      if (producer.userId === userId) {
+        room.delete(producerId);
+        removed.push(producerId);
+      }
+    }
+    if (room.size === 0) {
+      this.roomProducers.delete(roomId);
+    }
+    return removed;
   }
 
   getUserRooms(userId: string): string[] {

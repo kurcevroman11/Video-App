@@ -353,7 +353,6 @@ function App() {
   return (
     <VideoCallRoom
       signalingUrl={SIGNALING_URL}
-      apiUrl={API_URL}
       token={token}
       userId={user?.id ?? ''}
       roomId={roomId}

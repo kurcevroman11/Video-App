@@ -85,8 +85,12 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ROOM_SERVICE_HOST: room-service
       ROOM_SERVICE_PORT: "50051"
+      MEDIA_SERVICE_HOST: media-service
+      MEDIA_SERVICE_PORT: "50052"
     depends_on:
       room-service:
+        condition: service_started
+      media-service:
         condition: service_started
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -94,6 +98,27 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
+
+  media-service:
+    build:
+      context: ..
+      dockerfile: apps/media-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      MEDIASOUP_WORKERS: ${MEDIASOUP_WORKERS:-2}
+      MEDIASOUP_RTC_MIN_PORT: "40000"
+      MEDIASOUP_RTC_MAX_PORT: "49999"
+      MEDIASOUP_ANNOUNCED_IP: ${SERVER_IP}
+    ports:
+      - "40000-49999:40000-49999/udp"
+    depends_on: []
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(50052, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   postgres:

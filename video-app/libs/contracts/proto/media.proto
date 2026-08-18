@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package media;
+
+service MediaService {
+  rpc GetRouterRtpCapabilities (RoomIdRequest) returns (RtpCapabilities);
+  rpc CreateWebRtcTransport (CreateTransportRequest) returns (TransportInfo);
+  rpc ConnectTransport (ConnectTransportRequest) returns (Empty);
+  rpc Produce (ProduceRequest) returns (ProducerInfo);
+  rpc Consume (ConsumeRequest) returns (ConsumerInfo);
+  rpc ResumeConsumer (ResumeConsumerRequest) returns (Empty);
+  rpc CloseParticipant (CloseParticipantRequest) returns (ClosedProducersList);
+}
+
+message Empty {}
+
+message RoomIdRequest {
+  string room_id = 1;
+}
+
+message RtpCapabilities {
+  string rtp_capabilities = 1;
+}
+
+message CreateTransportRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string direction = 3; // "send" | "recv"
+}
+
+message TransportInfo {
+  string id = 1;
+  string ice_parameters = 2;
+  string ice_candidates = 3;
+  string dtls_parameters = 4;
+}
+
+message ConnectTransportRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string transport_id = 3;
+  string dtls_parameters = 4;
+}
+
+message ProduceRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string transport_id = 3;
+  string kind = 4; // "audio" | "video"
+  string rtp_parameters = 5;
+}
+
+message ProducerInfo {
+  string producer_id = 1;
+  string kind = 2;
+}
+
+message ConsumeRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string transport_id = 3;
+  string producer_id = 4;
+  string rtp_capabilities = 5;
+}
+
+message ConsumerInfo {
+  string consumer_id = 1;
+  string producer_id = 2;
+  string kind = 3;
+  string rtp_parameters = 4;
+  bool paused = 5;
+}
+
+message ResumeConsumerRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string consumer_id = 3;
+}
+
+message CloseParticipantRequest {
+  string room_id = 1;
+  string user_id = 2;
+}
+
+message ClosedProducersList {
+  repeated string producer_ids = 1;
+}

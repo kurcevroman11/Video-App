@@ -5,25 +5,39 @@ export class JoinRoomDto {
   roomId: string;
 }
 
-export class OfferDto {
+export class CreateTransportDto {
   @IsString()
-  targetUserId: string;
-
-  @IsString()
-  sdp: string;
+  direction: 'send' | 'recv';
 }
 
-export class AnswerDto {
+export class ConnectTransportDto {
   @IsString()
-  targetUserId: string;
+  transportId: string;
 
-  @IsString()
-  sdp: string;
+  dtlsParameters: any;
 }
 
-export class IceCandidateDto {
+export class ProduceDto {
   @IsString()
-  targetUserId: string;
+  transportId: string;
 
-  candidate: any;
+  @IsString()
+  kind: 'audio' | 'video';
+
+  rtpParameters: any;
+}
+
+export class ConsumeDto {
+  @IsString()
+  transportId: string;
+
+  @IsString()
+  producerId: string;
+
+  rtpCapabilities: any;
+}
+
+export class ResumeConsumerDto {
+  @IsString()
+  consumerId: string;
 }

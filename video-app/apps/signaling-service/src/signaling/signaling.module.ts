@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { SignalingGateway } from './signaling.gateway';
 import { SignalingStateService } from './signaling-state.service';
 import { RoomServiceClient } from '../room-client/room-service.client';
+import { MediaServiceClient } from '../media-client/media-service.client';
 
 @Module({
   imports: [
@@ -17,7 +18,12 @@ import { RoomServiceClient } from '../room-client/room-service.client';
     }),
     ConfigModule,
   ],
-  providers: [SignalingGateway, SignalingStateService, RoomServiceClient],
+  providers: [
+    SignalingGateway,
+    SignalingStateService,
+    RoomServiceClient,
+    MediaServiceClient,
+  ],
   exports: [SignalingGateway, SignalingStateService],
 })
 export class SignalingModule {}
