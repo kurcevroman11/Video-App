@@ -17,6 +17,9 @@ service RoomService {
   rpc CreateInvite(CreateInviteRequest) returns (Invite);
 
   rpc CheckAccess(CheckAccessRequest) returns (AccessResult);
+
+  rpc SaveMessage(SaveMessageRequest) returns (RoomMessage);
+  rpc GetMessages(GetMessagesRequest) returns (MessagesList);
 }
 
 message Room {
@@ -118,6 +121,31 @@ message ParticipantsList {
 message AccessResult {
   bool allowed = 1;
   string role = 2;
+}
+
+message RoomMessage {
+  string id = 1;
+  string room_id = 2;
+  string user_id = 3;
+  string content = 4;
+  int64 created_at = 5;
+}
+
+message SaveMessageRequest {
+  string room_id = 1;
+  string user_id = 2;
+  string content = 3;
+}
+
+message GetMessagesRequest {
+  string room_id = 1;
+  string cursor = 2; // id последнего полученного сообщения (пагинация вглубь истории)
+  int32 limit = 3;
+}
+
+message MessagesList {
+  repeated RoomMessage messages = 1;
+  string next_cursor = 2;
 }
 
 message Empty {}

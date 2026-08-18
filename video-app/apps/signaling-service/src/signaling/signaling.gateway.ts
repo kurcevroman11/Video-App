@@ -20,6 +20,8 @@ import {
   ProduceDto,
   ConsumeDto,
   ResumeConsumerDto,
+  ChatSendDto,
+  StopScreenShareDto,
 } from './dto/signaling.dto';
 
 @WebSocketGateway({
@@ -31,6 +33,10 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
   server: Server;
 
   private readonly logger = new Logger(SignalingGateway.name);
+
+  private readonly CHAT_MAX_LENGTH = 2000;
+  private readonly CHAT_RATE_LIMIT_MESSAGES = 5;
+  private readonly CHAT_RATE_LIMIT_WINDOW_MS = 10_000;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -76,6 +82,7 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
       this.logger.log(`User ${userId} left room ${roomId} (disconnect)`);
     }
 
+    this.signalingState.clearChatHistory(userId);
     this.logger.log(`Client ${client.id} (user ${userId}) disconnected`);
   }
 
@@ -225,6 +232,25 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     const roomId = this.signalingState.getRoomIdBySocketId(socketId);
     if (!roomId) return;
 
+    const source = payload.source === 'screen' ? 'screen' : 'camera';
+
+    // Бизнес-правило: ровно одна демонстрация экрана на комнату.
+    // Проверка на signaling-service, чтобы не дать второму участнику запустить
+    // параллельную демонстрацию и не полагаться только на клиентскую логику.
+    if (source === 'screen') {
+      const active = this.signalingState.getActiveScreenShare(roomId);
+      if (active && active.userId !== userId) {
+        client.emit('error', {
+          code: 'SCREEN_SHARE_UNAVAILABLE',
+          message: 'Another participant is already sharing their screen',
+        });
+        this.logger.log(
+          `Rejected screen share from user ${userId} in room ${roomId} (active: ${active.userId})`
+        );
+        return;
+      }
+    }
+
     try {
       const { producerId, kind } = await this.mediaServiceClient.produce(
         roomId,
@@ -234,13 +260,20 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
         payload.rtpParameters,
       );
 
-      this.signalingState.addProducer(roomId, producerId, userId, kind as 'audio' | 'video');
+      this.signalingState.addProducer(roomId, producerId, userId, kind as 'audio' | 'video', source);
+
+      if (source === 'screen') {
+        this.signalingState.setActiveScreenShare(roomId, userId, producerId);
+      }
 
       // Рассылаем остальным участникам комнаты new-producer.
-      client.to(roomId).emit('new-producer', { producerId, userId, kind });
-      this.logger.log(`Producer ${producerId} (${kind}) for user ${userId} in room ${roomId}, notified room`);
+      const producerInfo = { producerId, userId, kind, source };
+      client.to(roomId).emit('new-producer', producerInfo);
+      this.logger.log(
+        `Producer ${producerId} (${kind}, source=${source}) for user ${userId} in room ${roomId}, notified room`
+      );
 
-      client.emit('produced', { producerId, kind });
+      client.emit('produced', { producerId, kind, source });
     } catch (error: any) {
       this.logger.error(`produce failed: ${error.message}`);
       client.emit('error', { code: 'MEDIA_ERROR', message: error.message });
@@ -298,6 +331,106 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     }
   }
 
+  @SubscribeMessage('stop-screen-share')
+  async handleStopScreenShare(
+    @MessageBody() payload: StopScreenShareDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = client.data?.userId;
+    if (!userId) return;
+
+    const socketId = client.id;
+    const roomId = this.signalingState.getRoomIdBySocketId(socketId);
+    if (!roomId) return;
+
+    // Закрыть можно только собственную демонстрацию — не даём любому клиенту
+    // гасить чужой producer по угаданному producerId.
+    const localProducerState = this.signalingState.getProducer(roomId, payload.producerId);
+    if (!localProducerState || localProducerState.userId !== userId) {
+      client.emit('error', {
+        code: 'FORBIDDEN',
+        message: 'You cannot stop this screen share',
+      });
+      return;
+    }
+
+    // Срабатывает и на явный клик «Остановить показ» в приложении,
+    // и на нативную кнопку браузера "Stop sharing" (см. client: track.onended).
+    try {
+      await this.mediaServiceClient.closeProducer(roomId, payload.producerId);
+    } catch (error: any) {
+      this.logger.warn(`stop-screen-share CloseProducer failed: ${error.message}`);
+    }
+
+    this.signalingState.removeProducer(roomId, payload.producerId);
+    this.signalingState.clearScreenShareIfOwner(roomId, { producerId: payload.producerId });
+
+    this.server.to(roomId).emit('producer-closed', { producerId: payload.producerId });
+    this.logger.log(
+      `Screen share stopped by user ${userId} in room ${roomId}, producer ${payload.producerId} closed`
+    );
+  }
+
+  @SubscribeMessage('chat:send')
+  async handleChatSend(
+    @MessageBody() payload: ChatSendDto,
+    @ConnectedSocket() client: Socket,
+  ) {
+    const userId = client.data?.userId;
+    if (!userId) return;
+
+    const socketId = client.id;
+    const roomId = this.signalingState.getRoomIdBySocketId(socketId);
+    if (!roomId) {
+      client.emit('error', { code: 'NOT_IN_ROOM', message: 'Not in a room' });
+      return;
+    }
+
+    const content = typeof payload?.content === 'string' ? payload.content.trim() : '';
+    if (!content) {
+      client.emit('error', { code: 'CHAT_INVALID', message: 'Message is empty' });
+      return;
+    }
+    if (content.length > this.CHAT_MAX_LENGTH) {
+      client.emit('error', {
+        code: 'CHAT_TOO_LONG',
+        message: `Message exceeds ${this.CHAT_MAX_LENGTH} characters`,
+      });
+      return;
+    }
+
+    if (
+      !this.signalingState.checkAndRecordMessage(
+        userId,
+        this.CHAT_RATE_LIMIT_MESSAGES,
+        this.CHAT_RATE_LIMIT_WINDOW_MS,
+      )
+    ) {
+      client.emit('error', {
+        code: 'CHAT_RATE_LIMITED',
+        message: 'Too many messages, slow down',
+      });
+      return;
+    }
+
+    try {
+      const saved = await this.roomServiceClient.saveMessage(roomId, userId, content);
+      // broadcast всем в комнате (включая отправителя) — единый источник сообщения
+      this.server.to(roomId).emit('chat:message', {
+        id: saved.id,
+        userId: saved.userId,
+        content: saved.content,
+        createdAt: saved.createdAt,
+      });
+    } catch (error: any) {
+      this.logger.error(`chat:send failed: ${error.message}`);
+      client.emit('error', {
+        code: 'CHAT_SAVE_FAILED',
+        message: 'Message was not saved, try again',
+      });
+    }
+  }
+
   /**
    * Каскадно закрывает Producer'ы участника через media-service (CloseParticipant)
    * и рассылает producer-closed остальным. Возвращает закрытые producerId.
@@ -320,8 +453,12 @@ export class SignalingGateway implements OnGatewayConnection, OnGatewayDisconnec
     // Убираем из локального реестра и уведомляем комнату.
     for (const producerId of closedProducerIds) {
       this.signalingState.removeProducer(roomId, producerId);
+      this.signalingState.clearScreenShareIfOwner(roomId, { producerId });
       this.server.to(roomId).emit('producer-closed', { producerId });
     }
+
+    // Если уходил владелец демонстрации — снимаем активный статус демонстрации.
+    this.signalingState.clearScreenShareIfOwner(roomId, { userId });
 
     return closedProducerIds;
   }

@@ -1,4 +1,4 @@
-import { IsString } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class JoinRoomDto {
   @IsString()
@@ -25,6 +25,15 @@ export class ProduceDto {
   kind: 'audio' | 'video';
 
   rtpParameters: any;
+
+  @IsOptional()
+  @IsIn(['camera', 'screen'])
+  source?: 'camera' | 'screen';
+}
+
+export class StopScreenShareDto {
+  @IsString()
+  producerId: string;
 }
 
 export class ConsumeDto {
@@ -40,4 +49,9 @@ export class ConsumeDto {
 export class ResumeConsumerDto {
   @IsString()
   consumerId: string;
+}
+
+export class ChatSendDto {
+  @IsString()
+  content: string;
 }

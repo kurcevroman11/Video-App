@@ -9,6 +9,7 @@ import {
 
 export interface RemoteParticipant {
   userId: string;
+  source: 'camera' | 'screen';
   stream: MediaStream;
 }
 
@@ -16,7 +17,15 @@ export interface UseMediasoupReturn {
   deviceLoaded: boolean;
   remoteParticipants: RemoteParticipant[];
   connectionState: mediasoupTypes.ConnectionState;
+  screenSharing: boolean;
+  localScreenStream: MediaStream | null;
+  startScreenShare: () => Promise<boolean>;
+  stopScreenShare: () => void;
   close: () => void;
+}
+
+function streamKey(userId: string, source: 'camera' | 'screen'): string {
+  return `${userId}:${source}`;
 }
 
 /**
@@ -26,6 +35,9 @@ export interface UseMediasoupReturn {
  * 3. produce локальных аудио/видео треков через send-transport
  * 4. consume чужих Producer'ов через recv-transport, resume-consumer после подключения трека
  * Клиент НИКОГДА не создаёт RTCPeerConnection к другим участникам — "собеседник" всегда SFU.
+ *
+ * Демонстрация экрана — ещё один Producer с appData { source: 'screen' }.
+ * На клиенте камера и демо рендерятся по-разному (демо — крупно).
  */
 export function useMediasoup(
   socket: Socket | null,
@@ -37,53 +49,68 @@ export function useMediasoup(
   const [deviceLoaded, setDeviceLoaded] = useState(false);
   const [remoteParticipants, setRemoteParticipants] = useState<RemoteParticipant[]>([]);
   const [connectionState, setConnectionState] = useState<mediasoupTypes.ConnectionState>('new');
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
 
   const deviceRef = useRef<Device | null>(null);
   const sendTransportRef = useRef<mediasoupTypes.Transport | null>(null);
   const recvTransportRef = useRef<mediasoupTypes.Transport | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const participantsRef = useRef<Map<string, MediaStream>>(new Map());
+  const streamsRef = useRef<Map<string, RemoteParticipant>>(new Map());
   const consumerByProducerRef = useRef<Map<string, mediasoupTypes.Consumer>>(new Map());
   const producedKindsRef = useRef<Set<string>>(new Set());
   const pendingProducersRef = useRef<RemoteProducerInfo[]>([]);
   const startedRef = useRef(false);
+  const screenProducerRef = useRef<mediasoupTypes.Producer | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
 
   localStreamRef.current = localStream;
 
-  const addTrackToParticipant = useCallback((participantUserId: string, track: MediaStreamTrack) => {
-    let stream = participantsRef.current.get(participantUserId);
-    if (!stream) {
-      stream = new MediaStream();
-      participantsRef.current.set(participantUserId, stream);
-    }
-    stream.addTrack(track);
-    setRemoteParticipants([...participantsRef.current.entries()].map(([userId, s]) => ({ userId, stream: s })));
+  const refreshRemoteParticipants = useCallback(() => {
+    setRemoteParticipants(Array.from(streamsRef.current.values()));
   }, []);
 
+  const addTrackToParticipant = useCallback(
+    (producer: RemoteProducerInfo, track: MediaStreamTrack) => {
+      const source = producer.source === 'screen' ? 'screen' : 'camera';
+      const key = streamKey(producer.userId, source);
+      let entry = streamsRef.current.get(key);
+      if (!entry) {
+        entry = { userId: producer.userId, source, stream: new MediaStream() };
+        streamsRef.current.set(key, entry);
+      }
+      if (entry.stream.getTracks().some((t) => t.id === track.id)) return;
+      entry.stream.addTrack(track);
+      refreshRemoteParticipants();
+    },
+    [refreshRemoteParticipants]
+  );
+
   const removeTrackFromParticipant = useCallback(
-    (participantUserId: string, track: MediaStreamTrack) => {
-      const stream = participantsRef.current.get(participantUserId);
-      if (stream) {
-        stream.removeTrack(track);
-        if (stream.getTracks().length === 0) {
-          participantsRef.current.delete(participantUserId);
+    (participantUserId: string, source: 'camera' | 'screen', track: MediaStreamTrack) => {
+      const key = streamKey(participantUserId, source);
+      const entry = streamsRef.current.get(key);
+      if (entry) {
+        entry.stream.removeTrack(track);
+        if (entry.stream.getTracks().length === 0) {
+          streamsRef.current.delete(key);
         }
       }
-      setRemoteParticipants([...participantsRef.current.entries()].map(([userId, s]) => ({ userId, stream: s })));
+      refreshRemoteParticipants();
     },
-    []
+    [refreshRemoteParticipants]
   );
 
   const closeConsumer = useCallback(
     (producerId: string) => {
       const consumer = consumerByProducerRef.current.get(producerId);
       if (!consumer) return;
-      const peerUserId = (consumer.appData as any).userId as string;
+      const appData = consumer.appData as { userId: string; source: 'camera' | 'screen' };
       const track = consumer.track;
       consumer.close();
       consumerByProducerRef.current.delete(producerId);
-      if (peerUserId && track) {
-        removeTrackFromParticipant(peerUserId, track);
+      if (appData?.userId && track) {
+        removeTrackFromParticipant(appData.userId, appData.source ?? 'camera', track);
       }
     },
     [removeTrackFromParticipant]
@@ -118,11 +145,14 @@ export function useMediasoup(
           producerId: params.producerId,
           kind: params.kind as mediasoupTypes.MediaKind,
           rtpParameters: params.rtpParameters,
-          appData: { userId: producer.userId },
+          appData: {
+            userId: producer.userId,
+            source: producer.source === 'screen' ? 'screen' : 'camera',
+          },
         });
 
         consumerByProducerRef.current.set(producer.producerId, consumer);
-        addTrackToParticipant(producer.userId, consumer.track);
+        addTrackToParticipant(producer, consumer.track);
 
         consumer.on('trackended', () => closeConsumer(producer.producerId));
         consumer.on('@close', () => {
@@ -174,14 +204,23 @@ export function useMediasoup(
         }
       });
 
-      sendTransportRef.current.on('produce', async ({ kind, rtpParameters }, callback, errback) => {
-        try {
-          const { producerId } = await signaling.produce(sendParams.id, kind, rtpParameters);
-          callback({ id: producerId });
-        } catch (error: any) {
-          errback(error);
+      sendTransportRef.current.on(
+        'produce',
+        async ({ kind, rtpParameters, appData }, callback, errback) => {
+          try {
+            const source =
+              (appData as { source?: 'camera' | 'screen' } | undefined)?.source === 'screen'
+                ? 'screen'
+                : 'camera';
+            const { producerId } = await signaling.produce(sendParams.id, kind, rtpParameters, {
+              source,
+            });
+            callback({ id: producerId });
+          } catch (error: any) {
+            errback(error);
+          }
         }
-      });
+      );
 
       sendTransportRef.current.on('connectionstatechange', (state) => {
         console.log(`[sfu] sendTransport state=${state}`);
@@ -230,17 +269,86 @@ export function useMediasoup(
     }
   }, [socket, roomId, signaling]);
 
+  const stopScreenShare = useCallback(
+    (producerId?: string) => {
+      const producer = screenProducerRef.current;
+      if (producer) {
+        const id = producerId ?? producer.id;
+        if (id) signaling.stopScreenShare(id);
+        try {
+          producer.close();
+        } catch {
+          /* ignore */
+        }
+        screenProducerRef.current = null;
+      }
+      screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+      screenStreamRef.current = null;
+      setLocalScreenStream(null);
+      setScreenSharing(false);
+    },
+    [signaling]
+  );
+
+  /**
+   * Запуск демонстрации экрана: единственное отличие от камеры — appData source='screen'.
+   * Возвращает false, если пользователь отменил выбор окна/экрана.
+   */
+  const startScreenShare = useCallback(async (): Promise<boolean> => {
+    const sendTransport = sendTransportRef.current;
+    if (!sendTransport || screenProducerRef.current) return false;
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    } catch {
+      return false; // пользователь отменил выбор окна/экрана
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      return false;
+    }
+
+    try {
+      const producer = await sendTransport.produce({
+        track,
+        appData: { source: 'screen' },
+      });
+      screenProducerRef.current = producer;
+      screenStreamRef.current = stream;
+      setLocalScreenStream(stream);
+      setScreenSharing(true);
+
+      // Ловим остановку демонстрации и через нативную кнопку браузера "Stop sharing",
+      // и через явный клик "Остановить показ" в приложении (stopScreenShare вручную
+      // вызывает тот же emit, здесь только обработка onended).
+      track.onended = () => {
+        stopScreenShare(producer.id);
+      };
+      return true;
+    } catch (error: any) {
+      console.error('[sfu] screen share produce failed:', error.message);
+      stream.getTracks().forEach((t) => t.stop());
+      screenStreamRef.current = null;
+      setLocalScreenStream(null);
+      setScreenSharing(false);
+      return false;
+    }
+  }, [socket, stopScreenShare]);
+
   const teardown = useCallback(() => {
     for (const producerId of consumerByProducerRef.current.keys()) {
       closeConsumer(producerId);
     }
     consumerByProducerRef.current.clear();
     producedKindsRef.current.clear();
-    participantsRef.current.forEach((stream) => {
-      stream.getTracks().forEach((t) => t.stop());
+    streamsRef.current.forEach((entry) => {
+      entry.stream.getTracks().forEach((t) => t.stop());
     });
-    participantsRef.current.clear();
+    streamsRef.current.clear();
     setRemoteParticipants([]);
+    stopScreenShare();
     try {
       sendTransportRef.current?.close();
       recvTransportRef.current?.close();
@@ -253,9 +361,9 @@ export function useMediasoup(
     setDeviceLoaded(false);
     setConnectionState('new');
     startedRef.current = false;
-  }, [closeConsumer]);
+  }, [closeConsumer, stopScreenShare]);
 
-  // Получение новых чужих Producer'ов (кто-то включил камеру/микрофон).
+  // Получение новых чужих Producer'ов (кто-то включил камеру/микрофон/начал демонстрацию).
   useEffect(() => {
     if (!socket) return;
     const onNewProducer = (producer: RemoteProducerInfo) => {
@@ -267,7 +375,7 @@ export function useMediasoup(
     };
   }, [socket, consumeProducer]);
 
-  // Закрытие чужих Producer'ов (участник отключился/выключил камеру).
+  // Закрытие чужих Producer'ов (участник отключился/выключил камеру/остановил демонстрацию).
   useEffect(() => {
     if (!socket) return;
     const onProducerClosed = ({ producerId }: { producerId: string }) => {
@@ -299,11 +407,13 @@ export function useMediasoup(
     };
   }, [socket, setup, consumeProducer, teardown, userId]);
 
+  const teardownRef = useRef(teardown);
+  teardownRef.current = teardown;
   useEffect(() => {
     return () => {
-      teardown();
+      teardownRef.current();
     };
-  }, [teardown]);
+  }, []);
 
   const close = useCallback(() => {
     teardown();
@@ -313,6 +423,10 @@ export function useMediasoup(
     deviceLoaded,
     remoteParticipants,
     connectionState,
+    screenSharing,
+    localScreenStream,
+    startScreenShare,
+    stopScreenShare,
     close,
   };
 }

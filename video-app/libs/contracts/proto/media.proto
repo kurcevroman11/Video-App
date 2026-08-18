@@ -9,6 +9,7 @@ service MediaService {
   rpc Produce (ProduceRequest) returns (ProducerInfo);
   rpc Consume (ConsumeRequest) returns (ConsumerInfo);
   rpc ResumeConsumer (ResumeConsumerRequest) returns (Empty);
+  rpc CloseProducer (CloseProducerRequest) returns (Empty);
   rpc CloseParticipant (CloseParticipantRequest) returns (ClosedProducersList);
 }
 
@@ -75,6 +76,11 @@ message ResumeConsumerRequest {
   string room_id = 1;
   string user_id = 2;
   string consumer_id = 3;
+}
+
+message CloseProducerRequest {
+  string room_id = 1;
+  string producer_id = 2;
 }
 
 message CloseParticipantRequest {

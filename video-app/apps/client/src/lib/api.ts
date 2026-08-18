@@ -25,3 +25,36 @@ export function refreshAccessToken(apiUrl: string, refreshToken: string): Promis
     return (await res.json()) as TokenPair;
   });
 }
+
+export interface ApiChatMessage {
+  id: string;
+  room_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
+export interface ChatHistoryPage {
+  messages: ApiChatMessage[];
+  next_cursor: string;
+}
+
+export async function fetchChatHistory(
+  apiUrl: string,
+  token: string,
+  roomId: string,
+  cursor?: string,
+  limit = 50
+): Promise<ChatHistoryPage> {
+  const params = new URLSearchParams();
+  params.set('limit', String(limit));
+  if (cursor) params.set('cursor', cursor);
+
+  const res = await fetch(`${apiUrl}/rooms/${encodeURIComponent(roomId)}/messages?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load chat history (HTTP ${res.status})`);
+  }
+  return (await res.json()) as ChatHistoryPage;
+}

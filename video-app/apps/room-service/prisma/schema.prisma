@@ -42,6 +42,7 @@ model Room {
 
   members         RoomMember[]
   invites         Invite[]
+  messages        RoomMessage[]
 
   @@map("rooms")
 }
@@ -73,4 +74,17 @@ model Invite {
   room       Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   @@map("invites")
+}
+
+model RoomMessage {
+  id        String   @id @default(uuid())
+  roomId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@map("room_messages")
 }

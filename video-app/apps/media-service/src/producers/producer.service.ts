@@ -72,6 +72,23 @@ export class ProducerService {
     return closedIds;
   }
 
+  /**
+   * Закрывает один конкретный Producer (например, остановка демонстрации экрана).
+   * Идемпотентен: если Producer уже закрыт/не найден — просто вернёт null.
+   */
+  closeProducer(roomId: string, producerId: string): string | null {
+    const participant = this.participants.getParticipantByProducerId(roomId, producerId);
+    if (!participant) return null;
+
+    const producer = participant.producers.get(producerId);
+    if (!producer) return null;
+
+    producer.close(); // закрывает и связанные Consumer'ы на стороне mediasoup
+    participant.producers.delete(producerId);
+    this.logger.log(`Producer ${producerId} closed explicitly in room ${roomId}`);
+    return producerId;
+  }
+
   getProducers(roomId: string, userId: string): mediasoupTypes.Producer[] {
     return Array.from(this.participants.get(roomId, userId)?.producers.values() ?? []);
   }

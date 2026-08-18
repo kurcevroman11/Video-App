@@ -72,4 +72,13 @@ export class ParticipantStateService {
     const room = this.participants.get(roomId);
     return room ? Array.from(room.values()).map(p => p.userId) : [];
   }
+
+  getParticipantByProducerId(roomId: string, producerId: string): Participant | undefined {
+    const room = this.participants.get(roomId);
+    if (!room) return undefined;
+    for (const participant of room.values()) {
+      if (participant.producers.has(producerId)) return participant;
+    }
+    return undefined;
+  }
 }

@@ -5,6 +5,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -96,5 +97,23 @@ export class RoomsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async listMembers(@Param('id') id: string) {
     return this.roomsGrpcClient.listParticipants({ roomId: id });
+  }
+
+  @Get(':id/messages')
+  @ApiOperation({ summary: 'Get room chat history (cursor pagination)' })
+  @ApiParam({ name: 'id', description: 'Room ID' })
+  @ApiResponse({ status: 200, description: 'Messages list returned' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async listMessages(
+    @Param('id') id: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.roomsGrpcClient.getMessages({
+      roomId: id,
+      cursor,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    });
   }
 }

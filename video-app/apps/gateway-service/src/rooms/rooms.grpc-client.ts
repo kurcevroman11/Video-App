@@ -11,6 +11,7 @@ interface RoomServiceClient {
   JoinRoom(data: any): Observable<any>;
   LeaveRoom(data: any): Observable<any>;
   ListParticipants(data: any): Observable<any>;
+  GetMessages(data: any): Observable<any>;
 }
 
 @Injectable()
@@ -90,6 +91,16 @@ export class RoomsGrpcClient implements OnModuleInit {
   async listParticipants(data: { roomId: string }) {
     try {
       return await firstValueFrom(this.client.ListParticipants({ room_id: data.roomId }).pipe(timeout(5000)));
+    } catch (error) {
+      throw new ServiceUnavailableException('Room service unavailable');
+    }
+  }
+
+  async getMessages(data: { roomId: string; cursor?: string; limit?: number }) {
+    try {
+      return await firstValueFrom(
+        this.client.GetMessages({ room_id: data.roomId, cursor: data.cursor, limit: data.limit }).pipe(timeout(5000))
+      );
     } catch (error) {
       throw new ServiceUnavailableException('Room service unavailable');
     }

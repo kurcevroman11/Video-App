@@ -1,19 +1,26 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ConnectionStatus, mediaConstraints, ClientError } from '../lib/webrtc-config';
-import { useSignalingSocket } from '../hooks/useSignalingSocket';
+import { useSignalingSocket, ChatMessage } from '../hooks/useSignalingSocket';
 import { useMediasoup } from '../hooks/useMediasoup';
+import { fetchChatHistory } from '../lib/api';
 import { ConnectionBadge } from './ConnectionBadge';
 import { ControlButton } from './ControlButton';
 import { VideoTile } from './VideoTile';
+import { ChatPanel } from './ChatPanel';
 import {
   MicIcon,
   MicOffIcon,
   VideoOnIcon,
   VideoOffIcon,
   PhoneOffIcon,
+  ChatIcon,
+  ScreenShareIcon,
+  ScreenShareOffIcon,
   SpinnerIcon,
   AlertIcon,
 } from './icons';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 interface VideoCallRoomProps {
   signalingUrl: string;
@@ -67,6 +74,23 @@ export function VideoCallRoom({
   const [error, setError] = useState<string | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatLoadedRef = useRef(false);
+  const chatCursorRef = useRef('');
+  const chatIdsRef = useRef<Set<string>>(new Set());
+
+  const recordChatMessages = useCallback(
+    (incoming: ChatMessage[], position: 'append' | 'prepend') => {
+      setChatMessages((prev) => {
+        const fresh = incoming.filter((m) => !chatIdsRef.current.has(m.id));
+        fresh.forEach((m) => chatIdsRef.current.add(m.id));
+        return position === 'prepend' ? [...fresh, ...prev] : [...prev, ...fresh];
+      });
+    },
+    []
+  );
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const joinedRef = useRef(false);
@@ -85,8 +109,14 @@ export function VideoCallRoom({
       setStatus('NEGOTIATING');
     },
     onError: ({ code, message }) => {
+      // Часть ошибок — функциональные (длина/rate limit чата, занятая демонстрация):
+      // они не должны ронять весь звонок, достаточно тоста в углу.
+      const fatal = ['ACCESS_DENIED', 'NOT_AUTHENTICATED', 'MEDIA_ERROR', 'NOT_IN_ROOM'].includes(code);
       setError(`${code}: ${message}`);
-      setStatus('FAILED');
+      if (fatal) setStatus('FAILED');
+    },
+    onChatMessage: (message) => {
+      recordChatMessages([message], 'append');
     },
     onDisconnect: () => {
       setStatus('CONNECTING_SIGNALING');
@@ -165,6 +195,45 @@ export function VideoCallRoom({
     onExit?.();
   };
 
+  const loadChatHistory = useCallback(
+    (cursor?: string) => {
+      if (!token || chatBusy) return;
+      setChatBusy(true);
+      fetchChatHistory(API_URL, token, roomId, cursor)
+        .then((page) => {
+          // API отдаёт новые сообщения сверху — UI хочет старые сверху.
+          const mapped: ChatMessage[] = (page.messages ?? [])
+            .map((m) => ({
+              id: m.id,
+              userId: m.user_id,
+              content: m.content,
+              createdAt: m.created_at,
+            }))
+            .reverse();
+          chatCursorRef.current = page.next_cursor ?? '';
+          recordChatMessages(mapped, cursor ? 'prepend' : 'append');
+        })
+        .catch(() => {
+          if (!cursor) {
+            chatLoadedRef.current = false;
+          }
+        })
+        .finally(() => setChatBusy(false));
+    },
+    [token, roomId, chatBusy, recordChatMessages]
+  );
+
+  const toggleChat = useCallback(() => {
+    setChatOpen((prev) => {
+      const next = !prev;
+      if (next && !chatLoadedRef.current) {
+        chatLoadedRef.current = true;
+        loadChatHistory();
+      }
+      return next;
+    });
+  }, [loadChatHistory]);
+
   const toggleMic = () => {
     const next = !micOn;
     setMicOn(next);
@@ -183,7 +252,18 @@ export function VideoCallRoom({
 
   const waiting = status === 'WAITING_FOR_PEER' || (status === 'CONNECTING_SIGNALING' && mediasoup.remoteParticipants.length === 0);
   const ended = status === 'DISCONNECTED' || status === 'FAILED';
-  const participantCount = mediasoup.remoteParticipants.length;
+  const screenParticipants = mediasoup.remoteParticipants.filter((p) => p.source === 'screen');
+  const cameraParticipants = mediasoup.remoteParticipants.filter((p) => p.source === 'camera');
+  const cameraCount = cameraParticipants.length;
+  const hasContent = cameraCount > 0 || screenParticipants.length > 0;
+
+  const handleScreenShareToggle = async () => {
+    if (mediasoup.screenSharing) {
+      mediasoup.stopScreenShare();
+      return;
+    }
+    await mediasoup.startScreenShare();
+  };
 
   return (
     <div className="flex h-full min-h-screen flex-col bg-bg">
@@ -194,9 +274,9 @@ export function VideoCallRoom({
           <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
             {roomId ? roomId.slice(0, 8) : ''}
           </span>
-          {participantCount > 0 && (
+          {cameraCount > 0 && (
             <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-accent">
-              {participantCount} {participantCount === 1 ? 'участник' : 'участника'}
+              {cameraCount} {cameraCount === 1 ? 'участник' : 'участника'}
             </span>
           )}
         </div>
@@ -205,36 +285,59 @@ export function VideoCallRoom({
 
       {/* контент */}
       <main className="relative mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-3 pb-28 pt-2 sm:px-6">
-        <div
-          className={`grid w-full gap-3 ${
-            participantCount <= 1
-              ? 'grid-cols-1'
-              : participantCount === 2
-                ? 'grid-cols-1 sm:grid-cols-2'
-                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
-          }`}
-        >
-          {/* удалённые участники */}
-          {mediasoup.remoteParticipants.map((participant) => (
-            <VideoTile
-              key={participant.userId}
-              stream={participant.stream}
-              label={`Участник ${participant.userId.slice(0, 8)}`}
-              className="aspect-[4/3] rounded-2xl border border-border shadow-2xl shadow-black/40 bg-surface-2 animate-fade-in"
-              showPlaceholder={!participant.stream}
-              placeholder="Соединение…"
-            />
-          ))}
-
-          {/* заглушка ожидания */}
-          {waiting && mediatorRemoteEmpty(mediasoup) && (
-            <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-border bg-surface-2 animate-fade-in">
-              <div className="animate-pulse-soft flex items-center gap-2 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white/90">
-                <SpinnerIcon className="h-4 w-4 text-accent" />
-                Ожидаем участников…
-              </div>
+        <div className="flex w-full flex-col items-center gap-3">
+          {/* демонстрация экрана — крупно */}
+          {(mediasoup.screenSharing && mediasoup.localScreenStream) || screenParticipants.length > 0 ? (
+            <div className="flex w-full flex-col gap-3">
+              {mediasoup.screenSharing && mediasoup.localScreenStream && (
+                <VideoTile
+                  stream={mediasoup.localScreenStream}
+                  label="Ваш экран"
+                  className="aspect-video w-full rounded-2xl border border-border bg-surface-2 shadow-2xl shadow-black/40 animate-fade-in"
+                />
+              )}
+              {screenParticipants.map((participant) => (
+                <VideoTile
+                  key={`${participant.userId}-screen`}
+                  stream={participant.stream}
+                  label={`Экран ${participant.userId.slice(0, 8)}`}
+                  className="aspect-video w-full rounded-2xl border border-border bg-surface-2 shadow-2xl shadow-black/40 animate-fade-in"
+                />
+              ))}
             </div>
-          )}
+          ) : null}
+
+          {/* камеры — сеткой */}
+          <div
+            className={`grid w-full gap-3 ${
+              cameraCount <= 1
+                ? 'grid-cols-1'
+                : cameraCount === 2
+                  ? 'grid-cols-1 sm:grid-cols-2'
+                  : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+            }`}
+          >
+            {cameraParticipants.map((participant) => (
+              <VideoTile
+                key={`${participant.userId}-camera`}
+                stream={participant.stream}
+                label={`Участник ${participant.userId.slice(0, 8)}`}
+                className="aspect-[4/3] rounded-2xl border border-border shadow-2xl shadow-black/40 bg-surface-2 animate-fade-in"
+                showPlaceholder={!participant.stream}
+                placeholder="Соединение…"
+              />
+            ))}
+
+            {/* заглушка ожидания */}
+            {waiting && !hasContent && (
+              <div className="flex aspect-[4/3] items-center justify-center rounded-2xl border border-border bg-surface-2 animate-fade-in">
+                <div className="animate-pulse-soft flex items-center gap-2 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white/90">
+                  <SpinnerIcon className="h-4 w-4 text-accent" />
+                  Ожидаем участников…
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* локальный PiP */}
@@ -250,6 +353,22 @@ export function VideoCallRoom({
         </div>
       </main>
 
+      {/* панель чата */}
+      {chatOpen && (
+        <div className="fixed bottom-32 right-4 top-20 z-40 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-white/10 bg-surface shadow-2xl">
+          <ChatPanel
+            messages={chatMessages}
+            currentUserId={userId}
+            onSend={(text) => signaling.sendChatMessage(text)}
+            onLoadMore={() => {
+              if (chatCursorRef.current) loadChatHistory(chatCursorRef.current);
+            }}
+            busy={chatBusy}
+            onClose={() => setChatOpen(false)}
+          />
+        </div>
+      )}
+
       {/* панель управления */}
       {!ended && (
         <footer className="flex justify-center px-4 pb-6 pt-2">
@@ -259,6 +378,16 @@ export function VideoCallRoom({
             </ControlButton>
             <ControlButton label={camOn ? 'Камера' : 'Камера выкл'} active={camOn} onClick={toggleCam}>
               {camOn ? <VideoOnIcon /> : <VideoOffIcon />}
+            </ControlButton>
+            <ControlButton
+              label={mediasoup.screenSharing ? 'Остановить показ' : 'Экран'}
+              active={mediasoup.screenSharing}
+              onClick={handleScreenShareToggle}
+            >
+              {mediasoup.screenSharing ? <ScreenShareOffIcon /> : <ScreenShareIcon />}
+            </ControlButton>
+            <ControlButton label="Чат" active={chatOpen} onClick={toggleChat}>
+              <ChatIcon />
             </ControlButton>
             <div className="mx-1 h-10 w-px bg-white/10" />
             <ControlButton label="Завершить" danger onClick={handleLeave}>
@@ -325,8 +454,4 @@ export function VideoCallRoom({
       )}
     </div>
   );
-}
-
-function mediatorRemoteEmpty(mediasoup: { remoteParticipants: { userId: string; stream: MediaStream }[] }): boolean {
-  return mediasoup.remoteParticipants.length === 0;
 }

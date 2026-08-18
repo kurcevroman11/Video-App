@@ -1,4 +1,4 @@
-import { Room as PrismaRoom, RoomMember as PrismaRoomMember, Invite as PrismaInvite } from '../../node_modules/.prisma/room-client';
+import { Room as PrismaRoom, RoomMember as PrismaRoomMember, Invite as PrismaInvite, RoomMessage as PrismaRoomMessage } from '../../node_modules/.prisma/room-client';
 
 export interface RoomProto {
   id: string;
@@ -29,6 +29,14 @@ export interface InviteProto {
   expires_at: string;
   max_uses: number;
   uses_count: number;
+}
+
+export interface RoomMessageProto {
+  id: string;
+  room_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
 }
 
 function toUnixMs(value: Date | null | undefined): string {
@@ -73,5 +81,15 @@ export function mapInvite(invite: PrismaInvite): InviteProto {
     expires_at: toUnixMs(invite.expiresAt),
     max_uses: invite.maxUses || 0,
     uses_count: invite.usesCount || 0,
+  };
+}
+
+export function mapRoomMessage(message: PrismaRoomMessage): RoomMessageProto {
+  return {
+    id: message.id,
+    room_id: message.roomId,
+    user_id: message.userId,
+    content: message.content,
+    created_at: toUnixMs(message.createdAt),
   };
 }

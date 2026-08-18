@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { io, Socket } from 'socket.io-client';
 
 export type MediaKind = 'audio' | 'video';
@@ -7,6 +7,14 @@ export interface RemoteProducerInfo {
   producerId: string;
   userId: string;
   kind: MediaKind;
+  source?: 'camera' | 'screen';
+}
+
+export interface ChatMessage {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: string;
 }
 
 export interface TransportParams {
@@ -34,6 +42,7 @@ export interface SignalingEvents {
   onUserLeft?: (userId: string) => void;
   onNewProducer?: (producer: RemoteProducerInfo) => void;
   onProducerClosed?: (producerId: string) => void;
+  onChatMessage?: (message: ChatMessage) => void;
   onError?: (data: { code: string; message: string }) => void;
   onDisconnect?: () => void;
   onReconnect?: () => void;
@@ -52,7 +61,8 @@ export interface UseSignalingSocketReturn {
   produce: (
     transportId: string,
     kind: MediaKind,
-    rtpParameters: any
+    rtpParameters: any,
+    options?: { source?: 'camera' | 'screen' }
   ) => Promise<{ producerId: string; kind: MediaKind }>;
   consume: (
     transportId: string,
@@ -60,6 +70,8 @@ export interface UseSignalingSocketReturn {
     rtpCapabilities: any
   ) => Promise<ConsumerParams>;
   resumeConsumer: (consumerId: string) => Promise<void>;
+  sendChatMessage: (content: string) => void;
+  stopScreenShare: (producerId: string) => void;
 }
 
 interface PendingRequest {
@@ -188,6 +200,10 @@ export function useSignalingSocket(
         eventsRef.current.onProducerClosed?.(producerId);
       });
 
+      socket.on('chat:message', (message: ChatMessage) => {
+        eventsRef.current.onChatMessage?.(message);
+      });
+
       socket.on('error', ({ code, message }: { code: string; message: string }) => {
         eventsRef.current.onError?.({ code, message });
       });
@@ -251,8 +267,8 @@ export function useSignalingSocket(
   );
 
   const produce = useCallback(
-    (transportId: string, kind: MediaKind, rtpParameters: any) =>
-      request('produce', { transportId, kind, rtpParameters }, 'produced'),
+    (transportId: string, kind: MediaKind, rtpParameters: any, options?: { source?: 'camera' | 'screen' }) =>
+      request('produce', { transportId, kind, rtpParameters, source: options?.source }, 'produced'),
     [request]
   );
 
@@ -267,6 +283,14 @@ export function useSignalingSocket(
     [request]
   );
 
+  const sendChatMessage = useCallback((content: string) => {
+    socketRef.current?.emit('chat:send', { content });
+  }, []);
+
+  const stopScreenShare = useCallback((producerId: string) => {
+    socketRef.current?.emit('stop-screen-share', { producerId });
+  }, []);
+
   useEffect(() => {
     return () => {
       socketRef.current?.disconnect();
@@ -274,18 +298,38 @@ export function useSignalingSocket(
     };
   }, []);
 
-  return {
-    socket,
-    connect,
-    disconnect,
-    updateToken,
-    joinRoom,
-    leaveRoom,
-    getRouterCapabilities,
-    createTransport,
-    connectTransport,
-    produce,
-    consume,
-    resumeConsumer,
-  };
+  return useMemo(
+    () => ({
+      socket,
+      connect,
+      disconnect,
+      updateToken,
+      joinRoom,
+      leaveRoom,
+      getRouterCapabilities,
+      createTransport,
+      connectTransport,
+      produce,
+      consume,
+      resumeConsumer,
+      sendChatMessage,
+      stopScreenShare,
+    }),
+    [
+      socket,
+      connect,
+      disconnect,
+      updateToken,
+      joinRoom,
+      leaveRoom,
+      getRouterCapabilities,
+      createTransport,
+      connectTransport,
+      produce,
+      consume,
+      resumeConsumer,
+      sendChatMessage,
+      stopScreenShare,
+    ]
+  );
 }

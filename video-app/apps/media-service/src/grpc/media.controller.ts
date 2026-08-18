@@ -104,6 +104,19 @@ export class MediaController {
     return {};
   }
 
+  @GrpcMethod('MediaService', 'CloseProducer')
+  async closeProducer(data: { room_id: string; producer_id: string }) {
+    const closedId = this.producers.closeProducer(data.room_id, data.producer_id);
+    if (!closedId) {
+      // Продюсер мог уже закрыться (нативная кнопка Stop sharing + гонка с трек-эндедом) —
+      // повторное закрытие не является ошибкой.
+      this.logger.warn(
+        `Producer ${data.producer_id} not found for explicit close in room ${data.room_id}`
+      );
+    }
+    return {};
+  }
+
   @GrpcMethod('MediaService', 'CloseParticipant')
   async closeParticipant(data: { room_id: string; user_id: string }) {
     const { room_id: roomId, user_id: userId } = data;

@@ -126,6 +126,10 @@ export class MediaServiceClient implements OnModuleInit {
     return result.producer_ids as string[];
   }
 
+  async closeProducer(roomId: string, producerId: string): Promise<void> {
+    await this.call('CloseProducer', { room_id: roomId, producer_id: producerId });
+  }
+
   private async call(method: string, request: any): Promise<any> {
     try {
       return await firstValueFrom(this.client[method](request).pipe(timeout(5000)));

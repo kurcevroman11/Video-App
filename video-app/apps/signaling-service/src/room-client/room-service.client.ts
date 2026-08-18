@@ -9,6 +9,13 @@ export interface AccessResult {
   role?: string;
 }
 
+export interface SavedMessage {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: string;
+}
+
 @Injectable()
 export class RoomServiceClient implements OnModuleInit {
   private readonly logger = new Logger(RoomServiceClient.name);
@@ -55,6 +62,24 @@ export class RoomServiceClient implements OnModuleInit {
     } catch (error) {
       this.logger.error(`Failed to check access: ${error.message}`, error.stack);
       return { allowed: false };
+    }
+  }
+
+  async saveMessage(roomId: string, userId: string, content: string): Promise<SavedMessage> {
+    try {
+      this.logger.log(`Saving message for user ${userId} in room ${roomId}`);
+      const result: any = await firstValueFrom(
+        this.client.SaveMessage({ room_id: roomId, user_id: userId, content }).pipe(timeout(5000))
+      );
+      return {
+        id: result.id,
+        userId: result.user_id,
+        content: result.content,
+        createdAt: result.created_at,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to save message: ${error.message}`, error.stack);
+      throw error;
     }
   }
 }

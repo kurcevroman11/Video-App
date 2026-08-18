@@ -132,3 +132,42 @@ export function ReplayIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function ChatIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+export function ScreenShareIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="4" width="20" height="12" rx="2" />
+      <path d="m7 20 5-5 5 5" />
+      <path d="M12 15V9" />
+      <path d="m9 11 3-3 3 3" />
+    </svg>
+  );
+}
+
+export function ScreenShareOffIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="4" width="20" height="12" rx="2" />
+      <path d="m7 20 5-5 5 5" />
+      <path d="M12 9v1" />
+      <path d="M2 2l20 20" />
+    </svg>
+  );
+}
+
+export function SendIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m3 3 7.5 8.5L3 20" />
+      <path d="M10.5 11.5 21 3v18l-8.5-6" />
+    </svg>
+  );
+}
