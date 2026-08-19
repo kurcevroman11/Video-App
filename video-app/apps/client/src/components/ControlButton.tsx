@@ -7,6 +7,9 @@ interface ControlButtonProps {
   danger?: boolean;
   children: React.ReactNode;
   disabled?: boolean;
+  size?: 'md' | 'lg';
+  showLabel?: boolean;
+  highlight?: boolean;
 }
 
 export function ControlButton({
@@ -16,39 +19,45 @@ export function ControlButton({
   danger = false,
   disabled = false,
   children,
+  size = 'md',
+  showLabel = false,
+  highlight = false,
 }: ControlButtonProps) {
-  const base =
-    'flex h-full w-full items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50 disabled:cursor-not-allowed';
+  const dim = size === 'lg' ? 'h-14 w-14' : 'h-12 w-12';
+  const iconSize = size === 'lg' ? 'h-6 w-6' : 'h-5 w-5';
 
-  // работает через классы Tailwind v4
+  const base =
+    'flex items-center justify-center rounded-full transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px]';
+
   const style: React.CSSProperties = {
-    minWidth: 44,
-    minHeight: 44,
-    width: 56,
-    height: 56,
     color: danger ? '#fff' : active ? 'var(--color-text)' : '#fff',
     background: danger
       ? 'var(--color-danger)'
-      : active
-        ? 'rgba(255,255,255,0.08)'
-        : 'rgba(255,255,255,0.04)',
-    border: danger ? 'none' : `1px solid ${active ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.06)'}`,
+      : highlight
+        ? 'var(--color-accent)'
+        : active
+          ? 'rgba(255,255,255,0.10)'
+          : 'rgba(255,255,255,0.05)',
+    border: danger
+      ? 'none'
+      : `1px solid ${active ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`,
   };
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-1.5">
       <button
         type="button"
         aria-label={label}
+        aria-pressed={!active && !danger}
         title={label}
         onClick={onClick}
         disabled={disabled}
-        className={base}
+        className={`${base} ${dim}`}
         style={style}
       >
-        {children}
+        <span className={iconSize}>{children}</span>
       </button>
-      <span className="text-xs text-muted">{label}</span>
+      {showLabel && <span className="text-xs text-muted">{label}</span>}
     </div>
   );
 }

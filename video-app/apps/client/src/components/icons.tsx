@@ -3,16 +3,17 @@ import React from 'react';
 type IconProps = React.SVGProps<SVGSVGElement>;
 
 function base(props: IconProps) {
+  const { strokeWidth, ...rest } = props;
   return {
     width: 24,
     height: 24,
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
-    strokeWidth: 2,
+    strokeWidth: strokeWidth ?? 2,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
-    ...props,
+    ...rest,
   };
 }
 
@@ -168,6 +169,46 @@ export function SendIcon(props: IconProps) {
     <svg {...base(props)}>
       <path d="m3 3 7.5 8.5L3 20" />
       <path d="M10.5 11.5 21 3v18l-8.5-6" />
+    </svg>
+  );
+}
+
+export function CloseIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
+  );
+}
+
+export function DragHandleIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function SwipeDownIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 5v14" />
+      <path d="m6 13 6 6 6-6" />
+    </svg>
+  );
+}
+
+export function MicOffPillIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+      <path d="m2 2 20 20" />
     </svg>
   );
 }

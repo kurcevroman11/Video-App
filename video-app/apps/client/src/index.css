@@ -76,3 +76,64 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
 }
+
+/* safe-area для устройств с вырезами / gesture nav */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility pl-safe {
+  padding-left: env(safe-area-inset-left);
+}
+@utility pr-safe {
+  padding-right: env(safe-area-inset-right);
+}
+@utility inset-safe {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+@utility mt-safe {
+  margin-top: env(safe-area-inset-top);
+}
+@utility mb-safe {
+  margin-bottom: env(safe-area-inset-bottom);
+}
+
+/* перетаскиваемый PiP */
+.pip-drag {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.pip-drag:active {
+  cursor: grabbing;
+}
+
+/* Нижний sheet на mobile: предотвращаем pull-to-refresh */
+.overscroll-contain {
+  overscroll-behavior: contain;
+}
+
+/* Прячем bottom-sheet handle-bounce default scrollbar */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+/* respect reduce-motion — выключаем тяжёлые анимации */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
